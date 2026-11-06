@@ -82,7 +82,10 @@ main.wrap{padding-block:12px 40px;display:grid;gap:14px}
 .pl .nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pl .meta{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;gap:6px;align-items:center}
 .dots{display:inline-flex;gap:2px}.dots i{width:5px;height:5px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--bad)}
-.pl.out{opacity:.55}.pl.out .nm{text-decoration:line-through}
+.pl.out{opacity:.45;background:var(--sunk);border-style:dashed;cursor:not-allowed}.pl.out .nm{text-decoration:line-through}
+.pl.out:active{transform:none}
+.outlbl{color:var(--bad);font-weight:700;letter-spacing:.03em}
+.pl .meta > .outlbl{display:inline!important}
 .pl.team .n{font-size:14px;letter-spacing:.04em}
 .pl{position:relative;overflow:hidden;transition:transform .08s}
 .pl:active{transform:scale(.97)}
@@ -477,7 +480,7 @@ function render(){
     const on = ui.sel===p.n, left = on && revertAt ? Math.max(0, revertAt-Date.now()) : 0;
     return `<button class="pl${s.pf>=5?' out':''}" data-n="${p.n}" aria-pressed="${on}">${left?`<i class="tm" style="animation-duration:${REVERT_MS}ms;animation-delay:-${REVERT_MS-left}ms"></i>`:''}
       <span class="n">${p.n}</span><span class="nm">${esc(p.name)}${p.cap?' (C)':''}</span>
-      <span class="meta"><span>${s.pts} pt</span><span class="dots" aria-label="${s.pf} falli">${dots}</span></span></button>`;
+      <span class="meta">${s.pf>=5?'<span class="outlbl">FUORI 5F</span>':`<span>${s.pts} pt</span><span class="dots" aria-label="${s.pf} falli">${dots}</span>`}</span></button>`;
   });
   list.push(`<button class="pl team" data-n="${TEAM_N}" aria-pressed="${ui.sel===TEAM_N}"><span class="n">SQ</span><span class="nm">Squadra</span><span class="meta">non identificato</span></button>`);
   $('players').innerHTML = list.join('');
@@ -597,6 +600,7 @@ function record(k){
   g.log.push({id:g.seq, t:ui.team, n:ui.sel, k, q:g.q});
   try{ navigator.vibrate && navigator.vibrate(15); }catch(e){}
   toast(`${ui.sel===TEAM_N?'Squadra':'#'+ui.sel+' '+playerName(ui.team,ui.sel)} · ${LABEL[k]}`);
+  if(k==='pf' && fouledOut(ui.team, ui.sel)){ toast(`#${ui.sel} ${playerName(ui.team,ui.sel)}: 5° fallo, fuori dalla partita`); ui.sel = TEAM_N; }
   armRevert();
   commit();
 }
@@ -737,7 +741,10 @@ $('padStats').addEventListener('click', ()=>openSheet(ui.team, ui.sel));
 $('viewBox').addEventListener('click', e=>{ const r = e.target.closest('tr[data-n]'); if(r) openSheet(r.dataset.t, +r.dataset.n); });
 
 // ---------- eventi ----------
-$('players').addEventListener('click', e=>{ const b=e.target.closest('.pl'); if(!b) return; const n=+b.dataset.n; ui.sel = ui.sel===n ? TEAM_N : n; armRevert(); render(); });
+function fouledOut(t, n){ if(n===TEAM_N) return false; const x = compute().per[t][n]; return !!x && x.pf>=5; }
+$('players').addEventListener('click', e=>{ const b=e.target.closest('.pl'); if(!b) return; const n=+b.dataset.n;
+  if(fouledOut(ui.team, n)){ toast(`#${n} ${playerName(ui.team,n)} è uscito per 5 falli. Se è un errore, elimina un fallo dal registro.`); return; }
+  ui.sel = ui.sel===n ? TEAM_N : n; armRevert(); render(); });
 $('pad').addEventListener('click', e=>{ const b=e.target.closest('[data-k]'); if(b) record(b.dataset.k); });
 $('quarters').addEventListener('click', e=>{ const b=e.target.closest('[data-q]'); if(!b) return; S().q=+b.dataset.q; commit(); });
 document.querySelector('.teams').addEventListener('click', e=>{ const b=e.target.closest('[data-t]'); if(!b) return; if(ui.team!==b.dataset.t){ui.team=b.dataset.t; ui.sel=TEAM_N; armRevert();} render(); });
