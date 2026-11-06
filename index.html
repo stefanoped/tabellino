@@ -84,8 +84,20 @@ main.wrap{padding-block:12px 40px;display:grid;gap:14px}
 .dots{display:inline-flex;gap:2px}.dots i{width:5px;height:5px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--bad)}
 .pl.out{opacity:.55}.pl.out .nm{text-decoration:line-through}
 .pl.team .n{font-size:14px;letter-spacing:.04em}
-body[data-team="A"] .pl[aria-pressed="true"]{border-color:var(--aux);background:var(--aux-soft);box-shadow:0 0 0 2px var(--aux) inset}
-body[data-team="B"] .pl[aria-pressed="true"]{border-color:var(--opp);background:var(--opp-soft);box-shadow:0 0 0 2px var(--opp) inset}
+.pl{position:relative;overflow:hidden;transition:transform .08s}
+.pl:active{transform:scale(.97)}
+/* giocatore selezionato: pieno nel colore della squadra */
+body[data-team="A"] .pl[aria-pressed="true"]{border-color:var(--aux);background:var(--aux);color:#fff;box-shadow:0 4px 14px rgb(31 79 209/.4)}
+body[data-team="B"] .pl[aria-pressed="true"]{border-color:var(--opp);background:var(--opp);color:#1b1400;box-shadow:0 4px 14px rgb(201 138 0/.4)}
+.pl[aria-pressed="true"] .meta{color:inherit;opacity:.85}
+.pl[aria-pressed="true"] .dots i{background:rgb(255 255 255/.35)}
+.pl[aria-pressed="true"] .dots i.on{background:#ff3b30}
+/* "Squadra" selezionata (stato normale): evidenziata ma più tenue */
+body[data-team="A"] .pl.team[aria-pressed="true"]{background:var(--aux-soft);color:var(--aux);box-shadow:0 0 0 2px var(--aux) inset}
+body[data-team="B"] .pl.team[aria-pressed="true"]{background:var(--opp-soft);color:var(--ink);box-shadow:0 0 0 2px var(--opp) inset}
+.pl .tm{position:absolute;left:0;right:0;bottom:0;height:5px;background:rgb(255 255 255/.9);transform-origin:left;animation:tm linear forwards}
+body[data-team="B"] .pl .tm{background:rgb(27 20 0/.75)}
+@keyframes tm{from{transform:scaleX(1)}to{transform:scaleX(0)}}
 
 .pad{display:grid;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px}
 .padhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-width:0}
@@ -174,10 +186,20 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
   .livecol{display:grid;gap:12px;min-width:0}
   .logcol{position:sticky;top:calc(env(safe-area-inset-top,0px) + 118px);min-width:0}
   .logcol .log{max-height:calc(100vh - 220px);overflow-y:auto}
-  .players{grid-template-columns:repeat(auto-fill,minmax(124px,1fr))}
+  .livecol{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);column-gap:10px!important;align-items:end}
+  .livecol > :nth-child(n+3){grid-column:1/-1}
+  .livecol > div:first-child > .label{display:none}
+  .teams button{font-size:15px;padding:10px 12px}
+  .players{grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+  .pl{min-height:76px;padding:8px 10px;column-gap:10px;border-width:1.5px;border-radius:12px}
+  .pl .n{font-size:40px;min-width:46px}
+  .pl .nm{font-size:16px;line-height:1.12;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+  .pl .meta{font-size:13px}
+  .dots i{width:7px;height:7px}
+  .pl.team .n{font-size:20px}
   .board .wrap{gap:2px}
   .pts{font-size:46px}
-  .btn{padding:14px 4px;font-size:16px}
+  .btn{padding:12px 4px;font-size:16px}
   .logcol .log li:nth-child(n+16){display:none}
 }
 .padright{display:flex;align-items:center;gap:10px}
@@ -386,7 +408,11 @@ function normalize(id, d){
   };
 }
 let games = {}, curId = null;
-let ui = {team:'A', sel:null, view:'live', form:null, delAsk:null};
+let ui = {team:'A', sel:TEAM_N, view:'live', form:null, delAsk:null};
+// dopo 5 s senza tocchi la selezione torna a "Squadra"
+const REVERT_MS = 5000; let revertT = null, revertAt = 0;
+function armRevert(){ clearTimeout(revertT); if(ui.sel===TEAM_N){ revertAt = 0; return; } revertAt = Date.now()+REVERT_MS;
+  revertT = setTimeout(()=>{ ui.sel = TEAM_N; revertAt = 0; render(); }, REVERT_MS); }
 try{ games = JSON.parse(localStorage.getItem(GKEY)||'{}') || {}; }catch(e){ games = {}; }
 for(const id in games) games[id] = normalize(id, games[id]);
 try{ curId = localStorage.getItem(CKEY); }catch(e){}
@@ -448,7 +474,8 @@ function render(){
   const list = T.players.map(p=>{
     const s = c.per[ui.team][p.n] || blank();
     const dots = Array.from({length:5},(_,i)=>`<i class="${i<s.pf?'on':''}"></i>`).join('');
-    return `<button class="pl${s.pf>=5?' out':''}" data-n="${p.n}" aria-pressed="${ui.sel===p.n}">
+    const on = ui.sel===p.n, left = on && revertAt ? Math.max(0, revertAt-Date.now()) : 0;
+    return `<button class="pl${s.pf>=5?' out':''}" data-n="${p.n}" aria-pressed="${on}">${left?`<i class="tm" style="animation-duration:${REVERT_MS}ms;animation-delay:-${REVERT_MS-left}ms"></i>`:''}
       <span class="n">${p.n}</span><span class="nm">${esc(p.name)}${p.cap?' (C)':''}</span>
       <span class="meta"><span>${s.pts} pt</span><span class="dots" aria-label="${s.pf} falli">${dots}</span></span></button>`;
   });
@@ -570,6 +597,7 @@ function record(k){
   g.log.push({id:g.seq, t:ui.team, n:ui.sel, k, q:g.q});
   try{ navigator.vibrate && navigator.vibrate(15); }catch(e){}
   toast(`${ui.sel===TEAM_N?'Squadra':'#'+ui.sel+' '+playerName(ui.team,ui.sel)} · ${LABEL[k]}`);
+  armRevert();
   commit();
 }
 
@@ -619,10 +647,10 @@ $('gameForm').addEventListener('submit', e=>{
   if(ui.form==='new'){
     const id = 'g-'+info.date+'-'+Math.random().toString(36).slice(2,7);
     games[id] = normalize(id, {rev:0,q:1,seq:0,log:[],info,teams,createdAt:Date.now()});
-    curId = id; ui.sel = null; ui.team = 'A'; ui.form = null;
+    curId = id; ui.sel = TEAM_N; armRevert(); ui.team = 'A'; ui.form = null;
     commit(); setView('live'); toast('Nuova partita creata · la precedente è in archivio');
   } else {
-    Object.assign(S(), {info, teams}); ui.form = null; ui.sel = null;
+    Object.assign(S(), {info, teams}); ui.form = null; ui.sel = TEAM_N; armRevert();
     commit(); setView('live'); toast('Partita aggiornata');
   }
 });
@@ -631,7 +659,7 @@ $('newBtn').addEventListener('click', ()=>openForm('new'));
 $('editBtn').addEventListener('click', ()=>openForm('edit'));
 $('gamesList').addEventListener('click', async e=>{
   const o = e.target.closest('[data-open]'), d = e.target.closest('[data-del]'), y = e.target.closest('[data-delyes]'), n = e.target.closest('[data-delno]');
-  if(o){ curId = o.dataset.open; ui.sel = null; ui.delAsk = null; saveLocal(); setView('live'); toast('Aperta: '+S().teams.B.name); }
+  if(o){ curId = o.dataset.open; ui.sel = TEAM_N; armRevert(); ui.delAsk = null; saveLocal(); setView('live'); toast('Aperta: '+S().teams.B.name); }
   else if(d){ ui.delAsk = d.dataset.del; renderGames(); }
   else if(n){ ui.delAsk = null; renderGames(); }
   else if(y){ const id = y.dataset.delyes; delete games[id]; pending.delete(id); ui.delAsk = null; saveLocal(); renderGames();
@@ -709,10 +737,10 @@ $('padStats').addEventListener('click', ()=>openSheet(ui.team, ui.sel));
 $('viewBox').addEventListener('click', e=>{ const r = e.target.closest('tr[data-n]'); if(r) openSheet(r.dataset.t, +r.dataset.n); });
 
 // ---------- eventi ----------
-$('players').addEventListener('click', e=>{ const b=e.target.closest('.pl'); if(!b) return; const n=+b.dataset.n; ui.sel = ui.sel===n ? null : n; render(); });
+$('players').addEventListener('click', e=>{ const b=e.target.closest('.pl'); if(!b) return; const n=+b.dataset.n; ui.sel = ui.sel===n ? TEAM_N : n; armRevert(); render(); });
 $('pad').addEventListener('click', e=>{ const b=e.target.closest('[data-k]'); if(b) record(b.dataset.k); });
 $('quarters').addEventListener('click', e=>{ const b=e.target.closest('[data-q]'); if(!b) return; S().q=+b.dataset.q; commit(); });
-document.querySelector('.teams').addEventListener('click', e=>{ const b=e.target.closest('[data-t]'); if(!b) return; if(ui.team!==b.dataset.t){ui.team=b.dataset.t; ui.sel=null;} render(); });
+document.querySelector('.teams').addEventListener('click', e=>{ const b=e.target.closest('[data-t]'); if(!b) return; if(ui.team!==b.dataset.t){ui.team=b.dataset.t; ui.sel=TEAM_N; armRevert();} render(); });
 $('undo').addEventListener('click', ()=>{ const e=S().log.pop(); if(!e) return; toast('Annullato: '+LABEL[e.k]); commit(); });
 $('log').addEventListener('click', e=>{ const b=e.target.closest('.x'); if(!b) return; const id=+b.dataset.id; S().log=S().log.filter(x=>x.id!==id); toast('Azione eliminata'); commit(); });
 function setView(v){
@@ -731,7 +759,7 @@ $('copy').addEventListener('click', ()=>{
 });
 $('reset').addEventListener('click', ()=>{ $('confirm').hidden=false; });
 $('resetNo').addEventListener('click', ()=>{ $('confirm').hidden=true; });
-$('resetYes').addEventListener('click', ()=>{ const g=S(); g.log=[]; g.q=1; $('confirm').hidden=true; ui.sel=null; toast('Azioni cancellate'); commit(); });
+$('resetYes').addEventListener('click', ()=>{ const g=S(); g.log=[]; g.q=1; $('confirm').hidden=true; ui.sel=TEAM_N; armRevert(); toast('Azioni cancellate'); commit(); });
 
 // schermo intero + schermo sempre acceso
 let wake = null;
