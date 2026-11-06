@@ -121,7 +121,7 @@ th,td{padding:7px 7px;text-align:right;border-bottom:1px solid var(--line)}
 th{font-size:11px;letter-spacing:.06em;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--surface)}
 td.l,th.l{text-align:left}
 td.num{font-family:var(--f-num);font-weight:700;font-size:15px;text-align:center}
-td.pts{font-weight:700}
+td.pts{font-weight:700;font-family:inherit;font-size:inherit;line-height:inherit}
 tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
 .thead{font-family:var(--f-num);font-weight:700;font-size:20px;letter-spacing:.03em;display:flex;justify-content:space-between;align-items:baseline}
 .thead.a{color:var(--aux)}.thead.b{color:var(--opp)}
@@ -179,6 +179,36 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
   .btn{padding:14px 4px;font-size:16px}
   .logcol .log li:nth-child(n+16){display:none}
 }
+.padright{display:flex;align-items:center;gap:10px}
+tr.prow{cursor:pointer}
+tr.prow:active td{background:var(--aux-soft)}
+.plink{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.sheet{position:fixed;inset:0;z-index:30;background:rgb(8 12 20/.55);display:flex;align-items:center;justify-content:center;padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheetcard{background:var(--surface);color:var(--ink);border-radius:16px;width:100%;max-width:880px;max-height:100%;overflow-y:auto;padding:16px;display:grid;gap:14px;box-shadow:0 20px 50px rgb(0 0 0/.35)}
+.shhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.shhead h2{margin:2px 0 0;font-family:var(--f-num);font-weight:800;font-size:30px;line-height:1.05;letter-spacing:.01em}
+.shtabs{display:grid;grid-template-columns:1fr 1fr;max-width:360px}
+.shtabs[hidden]{display:none}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+.kpi{background:var(--sunk);border-radius:12px;padding:10px 12px;display:grid;gap:2px}
+.kpi b{font-family:var(--f-num);font-weight:800;font-size:32px;line-height:1;font-variant-numeric:tabular-nums}
+.kpi span{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kpi small{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.shots3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.shotbar{display:grid;gap:5px;font-size:13px}
+.shotbar .top{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.shotbar .top b{font-family:var(--f-num);font-size:16px}
+.bar{height:8px;border-radius:99px;background:var(--sunk);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--good);border-radius:99px}
+.minis{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px;font-variant-numeric:tabular-nums}
+.minis span{color:var(--muted)}.minis b{color:var(--ink)}
+.qpts{display:flex;gap:6px;flex-wrap:wrap}
+.qpts div{background:var(--sunk);border-radius:8px;padding:6px 10px;font-variant-numeric:tabular-nums;font-size:13px}
+.qpts b{font-family:var(--f-num);font-size:17px;margin-left:4px}
+.shlog{list-style:none;margin:0;padding:0;font-size:14px;display:grid;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+.shlog li{display:flex;gap:10px;padding:6px 10px;border-top:1px solid var(--line)}
+.shlog li:first-child{border-top:0}
+.shlog .q{font-family:var(--f-num);color:var(--muted);min-width:28px}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}.btn:active{transform:none}}
 </style>
 </head>
@@ -217,7 +247,7 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
     <div class="players" id="players"></div>
 
     <div class="pad" id="pad" aria-disabled="true">
-      <div class="padhead"><strong id="padWho">Scegli un giocatore</strong><span class="label" id="padQ"></span></div>
+      <div class="padhead"><strong id="padWho">Scegli un giocatore</strong><span class="padright"><span class="label" id="padQ"></span><button class="small" type="button" id="padStats" hidden>Statistiche</button></span></div>
       <div class="shots">
         <div class="shot"><span class="cap">2 PT</span><button class="btn made" data-k="p2">Segnato</button><button class="btn miss" data-k="m2">Sbagliato</button></div>
         <div class="shot"><span class="cap">3 PT</span><button class="btn made" data-k="p3">Segnato</button><button class="btn miss" data-k="m3">Sbagliato</button></div>
@@ -290,6 +320,13 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
     <ul class="games" id="gamesList"></ul>
   </section>
 </main>
+<div class="sheet" id="sheet" hidden>
+  <div class="sheetcard" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+    <div class="shhead"><div><div class="label" id="shTeam"></div><h2 id="shTitle"></h2></div><button class="small" type="button" id="shClose">Chiudi</button></div>
+    <div class="seg shtabs" role="group" aria-label="Periodo statistiche"><button type="button" id="shGame" aria-pressed="true">Questa partita</button><button type="button" id="shSeason" aria-pressed="false">Stagione</button></div>
+    <div id="shBody"></div>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -386,6 +423,8 @@ function render(){
   $('players').innerHTML = list.join('');
 
   const pad = $('pad');
+  $('padStats').hidden = ui.sel===null || ui.sel===TEAM_N;
+  if(sheet) renderSheet();
   if(ui.sel===null){ pad.setAttribute('aria-disabled','true'); $('padWho').textContent='Scegli un giocatore'; $('padQ').textContent=''; }
   else { pad.setAttribute('aria-disabled','false');
     $('padWho').textContent = (ui.sel===TEAM_N ? 'Squadra' : '#'+ui.sel+' '+playerName(ui.team,ui.sel)) + ' · ' + T.short;
@@ -416,14 +455,14 @@ function renderBox(c){
       const s = c.per[t][n]; if(n===TEAM_N && !s) continue;
       const p = T.players.find(p=>p.n===n);
       const nm = n===TEAM_N ? 'Squadra' : (p ? p.name+(p.cap?' (C)':'') : '#'+n);
-      rows.push(row(n===TEAM_N?'SQ':n, nm, s||blank(), false));
+      rows.push(row(n===TEAM_N?'SQ':n, nm, s||blank(), false, n===TEAM_N?null:`data-t="${t}" data-n="${n}"`));
     }
     rows.push(row('', 'Totale', c.tot[t], true));
     $('box'+t).innerHTML = `<div class="thead ${t.toLowerCase()}"><span>${esc(T.name)}</span><span>${c.tot[t].pts}</span></div>
       <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>TL%</th><th>RO</th><th>RD</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>ST</th><th>FS</th><th>F</th><th>VAL</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   }
-  function row(n,nm,x,tot){
-    return `<tr class="${tot?'tot':''}"><td class="num">${n}</td><td class="l">${esc(nm)}</td><td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${pct(x.p1,x.a1)}</td><td>${x.ro}</td><td>${x.rd}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.bk}</td><td>${x.fs}</td><td>${x.pf}</td><td>${val(x)}</td></tr>`;
+  function row(n,nm,x,tot,attr){
+    return `<tr class="${tot?'tot':''}${attr?' prow':''}" ${attr||''}><td class="num">${n}</td><td class="l">${attr?`<span class="plink">${esc(nm)}</span>`:esc(nm)}</td><td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${pct(x.p1,x.a1)}</td><td>${x.ro}</td><td>${x.rd}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.bk}</td><td>${x.fs}</td><td>${x.pf}</td><td>${val(x)}</td></tr>`;
   }
 }
 
@@ -565,6 +604,76 @@ $('gamesList').addEventListener('click', async e=>{
   else if(y){ const id = y.dataset.delyes; delete games[id]; pending.delete(id); ui.delAsk = null; saveLocal(); renderGames();
     if(db){ try{ await db.doc('games/'+id).delete(); }catch(err){} } toast('Partita eliminata'); }
 });
+
+// ---------- scheda giocatore ----------
+const normName = s => (s||'').toLowerCase().replace(/[^a-zà-ÿ]/g,'');
+let sheet = null;   // {t, n, name, mode}
+function openSheet(t, n){
+  if(n===TEAM_N || n==null) return;
+  const p = S().teams[t].players.find(p=>p.n===n);
+  sheet = {t, n, name: p ? p.name : '#'+n, mode:'game'};
+  $('sheet').hidden = false; renderSheet(); $('shClose').focus();
+}
+function closeSheet(){ sheet = null; $('sheet').hidden = true; }
+function shotBar(label, m, a){
+  const pc = a ? Math.round(m/a*100) : 0;
+  return `<div class="shotbar"><div class="top"><span>${label}</span><span><b>${m}/${a}</b> · ${a?pc+'%':'–'}</span></div><div class="bar"><i style="width:${pc}%"></i></div></div>`;
+}
+function kpi(v, l, sub){ return `<div class="kpi"><span>${l}</span><b>${v}</b>${sub?`<small>${sub}</small>`:''}</div>`; }
+function minis(x){
+  return `<div class="minis"><div><span>Rimb. off.</span> <b>${x.ro}</b></div><div><span>Rimb. dif.</span> <b>${x.rd}</b></div><div><span>Recuperi</span> <b>${x.st}</b></div><div><span>Perse</span> <b>${x.to}</b></div><div><span>Stoppate</span> <b>${x.bk}</b></div><div><span>Falli subiti</span> <b>${x.fs}</b></div></div>`;
+}
+function seasonGames(){
+  // stesse persona = stesso nome nel roster Auxilium (il numero di maglia può cambiare)
+  const key = normName(sheet.name), out = [];
+  for(const g of Object.values(games)){
+    const p = g.teams.A.players.find(p=>normName(p.name)===key); if(!p) continue;
+    const x = compute(g).per.A[p.n];
+    out.push({g, n:p.n, x: x || blank(), played: !!x});
+  }
+  return out.sort((a,b)=>(a.g.info.date||'').localeCompare(b.g.info.date||''));
+}
+function renderSheet(){
+  if(!sheet) return;
+  const g = S(), {t, n} = sheet;
+  const isAux = t==='A';
+  $('shTeam').textContent = g.teams[t].name;
+  $('shTitle').textContent = `#${n} ${sheet.name}`;
+  $('shGame').setAttribute('aria-pressed', sheet.mode==='game');
+  $('shSeason').setAttribute('aria-pressed', sheet.mode==='season');
+  document.querySelector('.shtabs').hidden = !isAux;
+  if(sheet.mode==='season' && isAux){
+    const list = seasonGames(), played = list.filter(r=>r.played), np = played.length;
+    const tot = blank(); for(const r of played) for(const k in tot) tot[k] += r.x[k];
+    const avg = v => np ? (v/np).toFixed(1).replace('.',',') : '–';
+    $('shBody').innerHTML = !np ? `<p class="empty">Nessuna statistica registrata nelle partite salvate.</p>` : `
+      <div class="kpis">${kpi(np,'Partite',`${list.length} a referto`)}${kpi(avg(tot.pts),'Punti/partita',`${tot.pts} totali`)}${kpi(avg(tot.ro+tot.rd),'Rimbalzi/p.',`${tot.ro+tot.rd} totali`)}${kpi(avg(tot.as),'Assist/p.',`${tot.as} totali`)}${kpi(avg(val(tot)),'Valutaz./p.')}${kpi(avg(tot.pf),'Falli/p.',`${tot.pf} totali`)}</div>
+      <div class="shots3">${shotBar('Tiri da 2', tot.p2, tot.a2)}${shotBar('Tiri da 3', tot.p3, tot.a3)}${shotBar('Tiri liberi', tot.p1, tot.a1)}</div>
+      ${minis(tot)}
+      <div class="tablewrap"><table><thead><tr><th class="l">Data</th><th class="l">Avversario</th><th>#</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>F</th><th>VAL</th></tr></thead><tbody>
+      ${list.slice().reverse().map(r=>{ const x=r.x; return `<tr><td class="l">${dateIt(r.g.info.date)}</td><td class="l">${r.g.info.home?'vs':'@'} ${esc(r.g.teams.B.name)}</td><td>${r.n}</td>${r.played?`<td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.pf}</td><td>${val(x)}</td>`:'<td colspan="10" class="l" style="color:var(--muted)">nessuna statistica</td>'}</tr>`; }).join('')}
+      </tbody></table></div>`;
+    return;
+  }
+  const c = compute(), x = c.per[t][n] || blank();
+  const qp = {}; for(const e of g.log) if(e.t===t && e.n===n && PTS[e.k]) qp[e.q] = (qp[e.q]||0) + PTS[e.k];
+  const maxQ = Math.max(4, ...g.log.map(e=>e.q));
+  const mine = g.log.filter(e=>e.t===t && e.n===n).slice().reverse();
+  const share = c.tot[t].pts ? Math.round(x.pts/c.tot[t].pts*100) : 0;
+  $('shBody').innerHTML = `
+    <div class="kpis">${kpi(x.pts,'Punti', c.tot[t].pts?`${share}% della squadra`:'')}${kpi(x.ro+x.rd,'Rimbalzi',`${x.ro} off · ${x.rd} dif`)}${kpi(x.as,'Assist')}${kpi(val(x),'Valutazione')}${kpi(x.pf+(x.pf>=5?' ✕':''),'Falli', x.pf>=5?'uscito per falli':`${5-x.pf} rimasti`)}</div>
+    <div class="shots3">${shotBar('Tiri da 2', x.p2, x.a2)}${shotBar('Tiri da 3', x.p3, x.a3)}${shotBar('Tiri liberi', x.p1, x.a1)}</div>
+    ${minis(x)}
+    <div class="qpts">${Array.from({length:maxQ},(_,i)=>`<div>${QNAME(i+1)}<b>${qp[i+1]||0}</b></div>`).join('')}</div>
+    <ul class="shlog">${mine.length ? mine.map(e=>`<li><span class="q">${QNAME(e.q)}</span><span>${LABEL[e.k]}</span></li>`).join('') : '<li class="empty">Nessuna azione registrata in questa partita.</li>'}</ul>`;
+}
+$('shClose').addEventListener('click', closeSheet);
+$('sheet').addEventListener('click', e=>{ if(e.target===$('sheet')) closeSheet(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && sheet) closeSheet(); });
+$('shGame').addEventListener('click', ()=>{ sheet.mode='game'; renderSheet(); });
+$('shSeason').addEventListener('click', ()=>{ sheet.mode='season'; renderSheet(); });
+$('padStats').addEventListener('click', ()=>openSheet(ui.team, ui.sel));
+$('viewBox').addEventListener('click', e=>{ const r = e.target.closest('tr[data-n]'); if(r) openSheet(r.dataset.t, +r.dataset.n); });
 
 // ---------- eventi ----------
 $('players').addEventListener('click', e=>{ const b=e.target.closest('.pl'); if(!b) return; const n=+b.dataset.n; ui.sel = ui.sel===n ? null : n; render(); });
