@@ -140,6 +140,9 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
 .f input,.f select,.f textarea{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%}
 .f textarea{font-size:15px;line-height:1.45;resize:vertical;font-variant-numeric:tabular-nums}
 .f input:focus,.f select:focus,.f textarea:focus{outline:2px solid var(--aux);outline-offset:0;border-color:var(--aux)}
+.ocrbox{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--aux-soft);border-radius:10px;padding:10px}
+.ocrhint{font-size:13px;color:var(--ink);flex:1;min-width:200px}
+.ocrhint.warn{color:var(--bad);font-weight:600}
 .ferr{margin:0;color:var(--bad);font-weight:600;font-size:14px}
 .games{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .game{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px 8px 4px 4px}
@@ -264,6 +267,11 @@ tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
     </div>
     <form class="card gform" id="gameForm" hidden novalidate>
       <span class="label" id="formTitle">Nuova partita</span>
+      <div class="ocrbox">
+        <button class="small primary" type="button" id="ocrBtn">Leggi le liste R da foto</button>
+        <span class="ocrhint" id="ocrStatus">Fotografa una o entrambe le liste R: numeri e nomi finiscono qui sotto. Le foto restano sul tablet.</span>
+        <input type="file" id="ocrFile" accept="image/*" multiple hidden>
+      </div>
       <div class="fgrid">
         <label class="f wide"><span>Squadra avversaria</span><input id="fOpp" autocomplete="off" placeholder="es. Basket Pegli"></label>
         <label class="f"><span>Gara n.</span><input id="fGara" inputmode="numeric" autocomplete="off"></label>
@@ -619,6 +627,185 @@ $('importFile').addEventListener('change', async e=>{
     saveLocal(); render(); toast(n ? `Importate ${n} partite` : 'Nessuna partita nuova nel file');
   }catch(err){ toast('File non valido: scegli un backup del tabellino (.json)'); }
 });
+// ---------- lettura liste R da foto (OCR sul dispositivo) ----------
+let ocrWorker = null, ocrBusy = false;
+function ocrStatus(t, warn){ const el = $('ocrStatus'); el.textContent = t; el.classList.toggle('warn', !!warn); }
+function loadScript(src){ return new Promise((ok,ko)=>{ if(window.Tesseract) return ok(); const sc=document.createElement('script'); sc.src=src; sc.onload=ok; sc.onerror=()=>ko(new Error('script')); document.head.appendChild(sc); }); }
+async function getWorker(onProg){
+  await loadScript('ocr/tesseract.min.js');
+  if(!ocrWorker){
+    const base = new URL('ocr/', location.href).href;
+    ocrWorker = await Tesseract.createWorker('ita', 1, {workerPath:base+'worker.min.js', corePath:base+'core', langPath:base+'lang', gzip:true,
+      logger: m => { if(onProg.cb && m.status==='recognizing text') onProg.cb(m.progress); }});
+    await ocrWorker.setParameters({tessedit_pageseg_mode:'4', preserve_interword_spaces:'1'});
+  }
+  return ocrWorker;
+}
+function fileToImage(file){ return new Promise((ok,ko)=>{ const url = URL.createObjectURL(file); const im = new Image(); im.onload=()=>{ URL.revokeObjectURL(url); ok(im); }; im.onerror=ko; im.src=url; }); }
+function prepCanvas(img, rot){
+  const maxSide = 3000, k = Math.min(1.6, maxSide/Math.max(img.width, img.height));
+  const w = Math.round(img.width*k), h = Math.round(img.height*k);
+  const c = document.createElement('canvas'); const side = rot%180 ? [h,w] : [w,h];
+  c.width = side[0]; c.height = side[1];
+  const x = c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,c.width,c.height);
+  x.translate(c.width/2, c.height/2); x.rotate(rot*Math.PI/180); x.drawImage(img, -w/2, -h/2, w, h);
+  const d = x.getImageData(0,0,c.width,c.height), a = d.data; let lo=255, hi=0;
+  for(let i=0;i<a.length;i+=4*7){ const g = .3*a[i]+.59*a[i+1]+.11*a[i+2]; if(g<lo) lo=g; if(g>hi) hi=g; }
+  const span = Math.max(40, hi-lo);
+  for(let i=0;i<a.length;i+=4){ let g = (.3*a[i]+.59*a[i+1]+.11*a[i+2]-lo)*255/span; g = g<0?0:g>255?255:g; a[i]=a[i+1]=a[i+2]=g; }
+  x.setTransform(1,0,0,1,0,0); x.putImageData(d,0,0);
+  return c;
+}
+const cap1 = w => w ? w[0]+w.slice(1).toLowerCase() : '';
+function fmtName(raw){
+  const words = raw.replace(/[|]/g,'I').replace(/[^A-Za-zÀ-ÿ' ]/g,' ').trim().split(/\s+/).filter(w=>w.length>1 || /[A-Z]/.test(w));
+  if(!words.length) return '';
+  if(words.length===1) return cap1(words[0]);
+  const first = words.pop();
+  return words.map(w=>w.split("'").map(cap1).join("'")).join(' ')+' '+first[0].toUpperCase()+'.';
+}
+function parseHeader(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  let socName = '';
+  const STOP = /SPONSOR|MAGLIA|PANTALONC|RETRO|FASCE|LISTA|FEDERAZ|ITALIANA|PALLACANESTRO|ANNO|CODICE|CAMPIONATO|IDENTIFICATIVO|GIUDICE|GARA|COLORE|DATA|SOTTOSCRITT|TESSERAT|CREATA/i;
+  for(const L of lines){
+    if(/LISTA TESSERATI|codice fiscale/i.test(L)) break;
+    let c = L.replace(/^.*?\b(Societ\S*|squadre)\s*/i,'').split(/\s+vs\.?\s+/i)[0];
+    c = c.replace(/[^A-Za-zÀ-ÿ.' ]/g,' ').replace(/\s+/g,' ').trim();
+    const letters = (c.match(/[A-Za-zÀ-ÿ]/g)||[]).length, upper = (c.match(/[A-ZÀ-Þ]/g)||[]).length;
+    if(letters>=6 && upper/letters>0.8 && !STOP.test(c)){ socName = c; break; }
+  }
+  const up = text.toUpperCase();
+  const auxCount = (up.match(/AUXILIUM/g)||[]).length;
+  const dm = text.match(/data\s*(\d{2})[\/.-](\d{2})[\/.-](\d{4})/i);
+  return {
+    socName: socName.replace(/[^A-Za-zÀ-ÿ0-9.' -]/g,'').replace(/\s+/g,' ').trim(),
+    isAux: socName ? /AUXILIUM/i.test(socName) : auxCount>=2,
+    gara: (text.match(/gara\s*n[.,°]?\s*(\d{2,5})/i)||[])[1] || '',
+    date: dm ? `${dm[3]}-${dm[2]}-${dm[1]}` : '',
+    cat: (up.match(/\b(U\d{2})/)||[])[1] || ''
+  };
+}
+const JUNK = /^[|\[\]_(){}.,:;‘’'"`~-]+$/;
+function isCF(t){ const c = t.replace(/\$/g,'S').replace(/[^A-Za-z0-9]/g,''); return c.length>=14 && c.length<=18 && (c.match(/\d/g)||[]).length>=4 && (c.match(/[A-Za-z]/g)||[]).length>=6; }
+// prima lettura: righe giocatori dalla struttura parole/righe
+function parseRows(data){
+  const rows = [];
+  for(const line of (data.lines||[])){
+    if(/qualifica|CAPO\s*ALL|ASS\.|ACCOMP|MEDICO/i.test(line.text)) break;   // da qui c'è lo staff
+    const ws = line.words.filter(x=>x.text.trim());
+    const ci = ws.findIndex(x=>isCF(x.text)); if(ci<0 || ci>1) continue;
+    let j = ci+1, n = null;
+    while(j<ws.length && JUNK.test(ws[j].text)) j++;
+    const nm = ws[j] && ws[j].text.replace(/[|\[\]_().]/g,'').match(/^(\d{1,2})$/);
+    if(nm){ n = +nm[1]; j++; }
+    while(j<ws.length && JUNK.test(ws[j].text)) j++;
+    const lh = Math.max(8, line.bbox.y1-line.bbox.y0);
+    const names = []; let prev = null, cap = false, firstW = null;
+    for(; j<ws.length; j++){
+      const t = ws[j].text;
+      if(/^\(?cap\b/i.test(t)){ cap = true; break; }
+      if(/\d/.test(t) || /^(carta|cie|patente|passap)/i.test(t)) break;
+      if(prev && ws[j].bbox.x0 - prev.bbox.x1 > lh*2.2) break;
+      if(/^\|+$/.test(t)){ if(names.length) break; else continue; }
+      names.push(t); prev = ws[j]; if(!firstW) firstW = ws[j];
+    }
+    if(!cap) cap = /\(\s*Cap\.?\s*\)/i.test(line.text);
+    const name = fmtName(names.join(' '));
+    if(!name || name.length<3 || !firstW) continue;
+    const cf = ws[ci].bbox;
+    rows.push({n, name, cap, rect:{x0:cf.x1, x1:firstW.bbox.x0, y0:firstW.bbox.y0, y1:firstW.bbox.y1}});
+  }
+  return rows;
+}
+// seconda lettura: solo la cella del numero, con le righe della tabella cancellate
+function numberCrop(canvas, r, frac){
+  const nh = r.rect.y1-r.rect.y0, padY = Math.round(nh*0.7);
+  const x0 = Math.max(0, r.rect.x0+1), x1 = Math.min(canvas.width, r.rect.x1-1);
+  const y0 = Math.max(0, r.rect.y0-padY), y1 = Math.min(canvas.height, r.rect.y1+padY);
+  const w = x1-x0, h = y1-y0; if(w<6 || h<6) return null;
+  const src = canvas.getContext('2d').getImageData(x0,y0,w,h), a = src.data;
+  const g = new Float32Array(w*h); for(let i=0;i<w*h;i++) g[i] = a[i*4];
+  const sorted = Array.from(g).sort((p,q)=>p-q);
+  const lo = sorted[Math.floor(sorted.length*0.01)], med = sorted[Math.floor(sorted.length*0.5)];
+  const ink = new Uint8Array(w*h); for(let i=0;i<w*h;i++) ink[i] = g[i] < lo + frac*(med-lo) ? 1 : 0;
+  // via i bordi della tabella...
+  for(let x=0;x<w;x++){ let d=0; for(let y=0;y<h;y++) d+=ink[y*w+x]; if(d>h*0.85) for(let xx=Math.max(0,x-1); xx<=Math.min(w-1,x+1); xx++) for(let y=0;y<h;y++) ink[y*w+xx]=0; }
+  for(let y=0;y<h;y++){ let d=0; for(let x=0;x<w;x++) d+=ink[y*w+x]; if(d>w*0.6) for(let yy=Math.max(0,y-1); yy<=Math.min(h-1,y+1); yy++) for(let x=0;x<w;x++) ink[yy*w+x]=0; }
+  // ...e ogni segno che tocca il bordo del ritaglio (pezzi di righe)
+  const q = [];
+  for(let x=0;x<w;x++){ q.push(x, (h-1)*w+x); } for(let y=0;y<h;y++){ q.push(y*w, y*w+w-1); }
+  while(q.length){ const i = q.pop(); if(!ink[i]) continue; ink[i]=0; const x=i%w, y=(i-x)/w;
+    if(x>0) q.push(i-1); if(x<w-1) q.push(i+1); if(y>0) q.push(i-w); if(y<h-1) q.push(i+w); }
+  for(let i=0;i<w*h;i++){ const v = ink[i] ? 0 : 255; a[i*4]=a[i*4+1]=a[i*4+2]=v; a[i*4+3]=255; }
+  const k = 3, pad = 30, c = document.createElement('canvas');
+  c.width = w*k+pad*2; c.height = h*k+pad*2;
+  const t = document.createElement('canvas'); t.width = w; t.height = h; t.getContext('2d').putImageData(src,0,0);
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0,0,c.width,c.height); x.imageSmoothingEnabled = false; x.drawImage(t, pad, pad, w*k, h*k);
+  return c;
+}
+async function readNumbers(w, canvas, rows, onStep){
+  const found = rows.map(()=>null);
+  await w.setParameters({tessedit_char_whitelist:'0123456789', tessedit_pageseg_mode:'7'});
+  try{
+    for(const frac of [0.7, 0.85]){
+      for(let i=0;i<rows.length;i++){
+        if(found[i]!=null) continue;
+        onStep(i, rows.length);
+        const c = numberCrop(canvas, rows[i], frac); if(!c) continue;
+        const {data} = await w.recognize(c);
+        const d = data.text.replace(/\D/g,'');
+        if(d.length>=1 && d.length<=2) found[i] = +d;
+      }
+    }
+  } finally {
+    await w.setParameters({tessedit_char_whitelist:'', tessedit_pageseg_mode:'4'});
+  }
+  rows.forEach((r,i)=>{ if(found[i]!=null) r.n = found[i]; });   // altrimenti resta il numero della prima lettura
+}
+function rowsToText(rows){ return rows.map(r=>`${r.n==null?'??':r.n} ${r.name}${r.cap?' (C)':''}`).join('\n'); }
+$('ocrBtn').addEventListener('click', ()=>{ if(!ocrBusy) $('ocrFile').click(); });
+$('ocrFile').addEventListener('change', async e=>{
+  const files = [...e.target.files]; e.target.value = ''; if(!files.length) return;
+  ocrBusy = true; $('ocrBtn').disabled = true;
+  const notes = [];
+  try{
+    ocrStatus('Preparo la lettura…');
+    const prog = {cb:null};
+    const w = await getWorker(prog);
+    for(let fi=0; fi<files.length; fi++){
+      const img = await fileToImage(files[fi]);
+      let best = null;
+      for(const rot of [0, 90, 270, 180]){
+        prog.cb = p => ocrStatus(`Foto ${fi+1} di ${files.length}: lettura ${Math.round(p*100)}%${rot?' (giro la foto)':''}`);
+        const canvas = prepCanvas(img, rot);
+        const {data} = await w.recognize(canvas);
+        const rows = parseRows(data);
+        if(!best || rows.length > best.rows.length) best = {...parseHeader(data.text), rows, canvas};
+        if(rows.length >= 5) break;
+      }
+      prog.cb = null;
+      if(best && best.rows.length >= 2) await readNumbers(w, best.canvas, best.rows, (i,n)=>ocrStatus(`Foto ${fi+1} di ${files.length}: numeri di maglia ${i+1}/${n}`));
+      if(!best || best.rows.length < 2){ notes.push(`foto ${fi+1}: lista non riconosciuta`); continue; }
+      const txt = rowsToText(best.rows);
+      if(best.isAux){ $('fRosterA').value = txt; notes.push(`Auxilium: ${best.rows.length} giocatori`); }
+      else {
+        $('fRosterB').value = txt;
+        if(best.socName && (!$('fOpp').value.trim() || ui.form==='new')) $('fOpp').value = best.socName.replace(/\s+/g,' ').split(' ').map(w=>w.includes('.')?w.toUpperCase():cap1(w)).join(' ');
+        notes.push(`${$('fOpp').value || 'avversario'}: ${best.rows.length} giocatori`);
+      }
+      if(best.gara && !$('fGara').value) $('fGara').value = best.gara;
+      if(best.date) $('fDate').value = best.date;
+      if(best.cat) $('fCat').value = best.cat;
+      if(best.rows.some(r=>r.n==null)) notes.push('alcuni numeri non letti (??)');
+    }
+    ocrStatus(notes.join(' · ')+' — controlla numeri e nomi prima di salvare.', true);
+  }catch(err){
+    ocrStatus('Lettura non riuscita. La prima volta serve internet per scaricare il lettore; poi funziona anche offline.', true);
+  }
+  ocrBusy = false; $('ocrBtn').disabled = false;
+});
+
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 
