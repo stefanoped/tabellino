@@ -210,6 +210,38 @@ tr.prow:active td{background:var(--aux-soft)}
 .shlog li{display:flex;gap:10px;padding:6px 10px;border-top:1px solid var(--line)}
 .shlog li:first-child{border-top:0}
 .shlog .q{font-family:var(--f-num);color:var(--muted);min-width:28px}
+/* Telefono in verticale: tabellone, giocatori e tasti nella stessa schermata */
+@media (max-width:600px){
+  .board .wrap{padding-block:6px;gap:2px}
+  .tname{font-size:13px}
+  .pts{font-size:40px}
+  .fouls{font-size:11px}
+  .qlabel{display:none}
+  .qbig{font-size:24px}
+  .qline{font-size:12px;gap:8px}
+  .syncrow{display:none}
+  main.wrap{padding-block:8px 40px;gap:10px}
+  #viewLive,.livecol{gap:8px!important}
+  .livecol > div:first-child > .label{display:none}
+  .seg button{padding:7px 6px;font-size:13px}
+  .quarters button{font-size:15px;padding:5px 0}
+  .players{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+  .pl{grid-template-columns:minmax(0,1fr);justify-items:center;text-align:center;padding:4px 3px 5px;row-gap:1px}
+  .pl .n{grid-row:auto;font-size:22px;min-width:0}
+  .pl .nm{font-size:11px;max-width:100%}
+  .pl .meta{font-size:10px;gap:4px}
+  .pl .meta > span:first-child{display:none}
+  .pl.team .n{font-size:13px}
+  .pl.team .meta{display:none}
+  .pad{padding:8px;gap:5px}
+  .padhead strong{font-size:16px}
+  #padQ{display:none}
+  .padright .small{padding:5px 9px}
+  .shot .cap{font-size:12px}
+  .btn{padding:11px 3px;font-size:14px}
+  .sheetcard{padding:12px}
+  .shots3{grid-template-columns:1fr}
+}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}.btn:active{transform:none}}
 </style>
 </head>
@@ -717,7 +749,7 @@ $('fsBtn').addEventListener('click', async ()=>{
 document.addEventListener('fullscreenchange', fsLabel);
 
 render();
-setSync('Dati salvati su questo tablet');
+setSync('Dati salvati su questo dispositivo');
 
 if(firstRun){ setView('games'); openForm('edit'); $('formTitle').textContent = 'Imposta la prima partita'; $('formSave').textContent = 'Salva e inizia'; $('fOpp').value = ''; }
 
