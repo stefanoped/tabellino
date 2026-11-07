@@ -102,6 +102,9 @@ body[data-team="B"] .pl.team[aria-pressed="true"]{background:var(--opp-soft);col
 body[data-team="B"] .pl .tm{background:rgb(27 20 0/.75)}
 @keyframes tm{from{transform:scaleX(1)}to{transform:scaleX(0)}}
 .qbtn{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.qbtn.done{background:var(--sunk);color:var(--muted);border-color:var(--line)}
+.quarters button small{font-size:10px;margin-left:3px;color:var(--good)}
+.quarters button.qrun{color:var(--bad)}
 .qbtn.go{background:var(--good);border-color:var(--good);color:#fff}
 .qbtn.run{background:var(--surface);border-color:var(--bad);color:var(--bad)}
 .qbtn.run::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:7px;vertical-align:1px;animation:blink 1.2s infinite}
@@ -154,7 +157,7 @@ body[data-team="B"] .pl .tm{background:rgb(27 20 0/.75)}
 .btn.miss{background:var(--bad-soft);color:var(--bad)}
 .btn.foul{background:var(--bad);color:#fff}
 .others{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.pad[aria-disabled="true"] .btn{opacity:.35;pointer-events:none}
+.pad[data-off="true"] .btn{opacity:.35;pointer-events:none}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;display:grid;gap:8px}
 .cardhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -375,8 +378,8 @@ tr.prow:active td{background:var(--aux-soft)}
     </div>
     <div class="players" id="players"></div>
 
-    <div class="pad" id="pad" aria-disabled="true">
-      <div class="padhead"><strong id="padWho">Scegli un giocatore</strong><span class="padright"><span class="label" id="padQ"></span><button class="small" type="button" id="padStats" hidden>Statistiche</button></span></div>
+    <div class="pad" id="pad" data-off="true">
+      <div class="padhead"><strong id="padWho">Scegli un giocatore</strong><span class="padright"><span class="label" id="padQ"></span><button class="small" type="button" id="padStats" hidden>Statistiche</button><button class="small" type="button" id="fixBtn" hidden>Correzione</button></span></div>
       <div class="shots">
         <div class="shot"><span class="cap">2 PT</span><button class="btn made" data-k="p2">Segnato</button><button class="btn miss" data-k="m2">Sbagliato</button></div>
         <div class="shot"><span class="cap">3 PT</span><button class="btn made" data-k="p3">Segnato</button><button class="btn miss" data-k="m3">Sbagliato</button></div>
@@ -410,7 +413,7 @@ tr.prow:active td{background:var(--aux-soft)}
       <button class="small danger" id="reset">Cancella azioni</button>
     </div>
     <div class="confirm" id="confirm" hidden>
-      <span>Cancello tutte le azioni registrate di questa partita? Roster e dati della gara restano. Non si può annullare.</span>
+      <span>Cancello tutte le azioni, i periodi e il quintetto di questa partita? Roster e dati della gara restano. Non si può annullare.</span>
       <div class="row"><button class="small danger" id="resetYes">Sì, azzera</button><button class="small" id="resetNo">Annulla</button></div>
     </div>
     <textarea id="copyBox" hidden readonly style="width:100%;height:220px;font:12px ui-monospace,monospace;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px"></textarea>
@@ -504,6 +507,22 @@ function court(g, now){
   const est = n => periods.reduce((a,q)=>a+minQ(n,q),0);
   return {on, has, running, runQ, startTs, secs, pm, qOn, secsQ, qReal, qDone, periods, minQ, est, timed: g.log.some(e=>e.k==='qs')};
 }
+// stato della partita: periodo in corso, prossimo periodo, partita finita
+function phase(g, cs, c){
+  cs = cs || court(g); c = c || compute(g);
+  const legacy = !cs.timed && g.log.some(e=>STAT_K.has(e.k));   // partite registrate senza inizio/fine periodo
+  const done = Object.keys(cs.qDone).map(Number);
+  const maxDone = done.length ? Math.max(...done) : 0;
+  let next = null, finished = false;
+  if(!cs.running){
+    if(maxDone < 4) next = maxDone+1;
+    else if(c.tot.A.pts === c.tot.B.pts) next = maxDone+1;      // supplementare solo in parità
+    else finished = true;
+  }
+  const activeQ = cs.running ? cs.runQ : (ui.fix && done.includes(ui.fixQ) ? ui.fixQ : (legacy ? g.q : null));
+  return {legacy, running:cs.running, runQ:cs.runQ, next, finished, maxDone, activeQ, done:new Set(done)};
+}
+const evQ = () => { const ph = phase(S()); return ph.activeQ || ph.next || ph.maxDone || 1; };
 const fmtEst = m => m>0 && m<0.5 ? "<1'" : Math.round(m)+"'";
 const QNAME = q => q<=4 ? q+'°' : 'TS'+(q-4);
 const GKEY = 'aux-games-v2', CKEY = 'aux-current';
@@ -522,7 +541,7 @@ function normalize(id, d){
   };
 }
 let games = {}, curId = null;
-let ui = {team:'A', sel:TEAM_N, view:'live', form:null, delAsk:null, mode:null, pick:[], outs:[], ins:[]};
+let ui = {team:'A', sel:TEAM_N, view:'live', form:null, delAsk:null, mode:null, pick:[], outs:[], ins:[], fix:false, fixQ:null};
 // dopo 5 s senza tocchi la selezione torna a "Squadra"
 const REVERT_MS = 5000; let revertT = null, revertAt = 0;
 function armRevert(){ clearTimeout(revertT); if(ui.sel===TEAM_N){ revertAt = 0; return; } revertAt = Date.now()+REVERT_MS;
@@ -578,19 +597,25 @@ function render(){
   $('nameA').textContent = 'Auxilium'; $('nameB').textContent = g.teams.B.name;
   $('teamBtnA').textContent = g.teams.A.name; $('teamBtnB').textContent = g.teams.B.name;
   $('ptsA').textContent = c.tot.A.pts; $('ptsB').textContent = c.tot.B.pts;
-  $('qBig').textContent = QNAME(g.q);
-  const fq = Math.min(g.q,4);
+  const csH = court(g), ph = phase(g, csH, c);
+  $('qBig').textContent = ph.running ? QNAME(ph.runQ) : ph.finished ? 'FINE' : ph.legacy ? QNAME(g.q) : QNAME(ph.next);
+  document.querySelector('.qlabel').textContent = ph.running ? 'IN CORSO' : ph.finished ? 'PARTITA' : ph.legacy ? 'PERIODO' : (ph.maxDone ? 'INTERVALLO' : 'PRE-PARTITA');
+  const fq = Math.min(ph.activeQ || ph.next || ph.maxDone || g.q, 4);
   for(const t of ['A','B']){
     const n = c.tf[t][fq]||0, el = $('tf'+t);
     el.textContent = 'Falli sq. '+n + (n>=4 ? ' · BONUS' : '');
     el.classList.toggle('bonus', n>=4);
   }
-  const maxQ = Math.max(4, g.q, ...g.log.map(e=>e.q));
+  const maxQ = Math.max(4, ...g.log.map(e=>e.q||1));
   const parts = [`<span>${esc((g.info.gara?'Gara '+g.info.gara+' · ':'')+dateIt(g.info.date))}</span>`];
   for(let q=1;q<=maxQ;q++) parts.push(`<span>${QNAME(q)} ${c.byQ.A[q]||0}-${c.byQ.B[q]||0}</span>`);
   $('qline').innerHTML = parts.join('');
 
-  $('quarters').innerHTML = [1,2,3,4,5,6].map(q=>`<button data-q="${q}" aria-pressed="${q===g.q}">${QNAME(q)}</button>`).join('');
+  const qList = Array.from({length:Math.max(6, ph.maxDone+1, ph.runQ||0)},(_,i)=>i+1);
+  $('quarters').innerHTML = qList.map(q=>{
+    const pressed = ph.legacy ? q===g.q : ui.fix ? q===ui.fixQ : (ph.running ? q===ph.runQ : q===ph.next);
+    const st = ph.done.has(q) ? ' qdone' : (ph.running && q===ph.runQ) ? ' qrun' : '';
+    return `<button data-q="${q}" class="${st.trim()}" aria-pressed="${pressed}">${QNAME(q)}${ph.done.has(q)?'<small>✓</small>':''}</button>`; }).join('');
   document.querySelectorAll('.teams button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.t===ui.team));
 
   const T = g.teams[ui.team];
@@ -623,22 +648,28 @@ function render(){
       <div class="benchrow"><span class="label">Panchina</span>${ui.mode?'':'<button class="small" type="button" data-act="lineup">Correggi quintetto</button><button class="small primary" type="button" data-act="sub">Cambio</button>'}</div>
       <div class="bench">${benchP.map(tile).join('')}</div>`;
   } else {
-    const hint = ui.team==='A' && T.players.length>=5 ? `<div class="modebar"><span>Facoltativo: segna il quintetto in campo per avere +/- e tempo in campo</span><button class="small primary" type="button" data-act="lineup">Scegli quintetto</button></div>` : '';
+    const hint = ui.team==='A' && T.players.length>=5 ? `<div class="modebar"><span>Facoltativo: segna il quintetto in campo per avere minuti e +/-</span><button class="small primary" type="button" data-act="lineup">Scegli quintetto</button></div>` : '';
     html = hint + T.players.map(tile).join('') + sqTile;
   }
   $('players').className = 'players' + (useLineup ? ' lineup' : '');
   $('players').innerHTML = html;
   const qb = $('qBtn');
   if(cs.running){ qb.className = 'small qbtn run'; qb.textContent = `Fine ${QNAME(cs.runQ)} · ${fmtClock((Date.now()-cs.startTs)/1000)}`; }
-  else { qb.className = 'small qbtn go'; qb.textContent = `Inizia ${QNAME(g.q)}`; }
+  else if(ph.finished){ qb.className = 'small qbtn done'; qb.textContent = 'Partita finita'; }
+  else { qb.className = 'small qbtn go'; qb.textContent = `Inizia ${QNAME(ph.next)}`; }
 
   const pad = $('pad');
   $('padStats').hidden = ui.sel===null || ui.sel===TEAM_N;
   if(sheet) renderSheet();
-  if(ui.mode){ pad.setAttribute('aria-disabled','true'); $('padWho').textContent = ui.mode==='lineup' ? 'Scelta del quintetto…' : 'Cambio in corso…'; $('padQ').textContent=''; $('padStats').hidden = true; }
-  else if(ui.sel===null){ pad.setAttribute('aria-disabled','true'); $('padWho').textContent='Scegli un giocatore'; $('padQ').textContent=''; }
-  else { pad.setAttribute('aria-disabled','false');
-    $('padWho').textContent = (ui.sel===TEAM_N ? 'Squadra' : '#'+ui.sel+' '+playerName(ui.team,ui.sel)) + ' · ' + T.short;
+  $('fixBtn').hidden = ph.running || ph.legacy || !ph.maxDone || !!ui.mode;
+  $('fixBtn').textContent = ui.fix ? 'Fine correzione' : 'Correzione';
+  $('fixBtn').classList.toggle('primary', ui.fix);
+  if(ui.mode){ pad.setAttribute('data-off','true'); $('padWho').textContent = ui.mode==='lineup' ? 'Scelta del quintetto…' : 'Cambio in corso…'; $('padQ').textContent=''; $('padStats').hidden = true; }
+  else if(!ph.activeQ){ pad.setAttribute('data-off','true'); $('padStats').hidden = true; $('padQ').textContent = '';
+    $('padWho').textContent = ph.finished ? 'Partita finita' : ph.maxDone ? `Intervallo: premi «Inizia ${QNAME(ph.next)}» per registrare` : `Premi «Inizia 1°» per registrare le azioni`; }
+  else if(ui.sel===null){ pad.setAttribute('data-off','true'); $('padWho').textContent='Scegli un giocatore'; $('padQ').textContent=''; }
+  else { pad.setAttribute('data-off','false');
+    $('padWho').textContent = (ui.fix && !ph.running ? `Correzione ${QNAME(ph.activeQ)} · ` : '') + (ui.sel===TEAM_N ? 'Squadra' : '#'+ui.sel+' '+playerName(ui.team,ui.sel)) + ' · ' + T.short;
     const s = c.per[ui.team][ui.sel]||blank();
     $('padQ').textContent = `${s.pts} pt · ${s.ro+s.rd} rimb · ${s.pf} falli`;
   }
@@ -754,11 +785,14 @@ async function flush(){
   else if(pending.size){ flush(); }
   else setSync('Salvato · '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}));
 }
-function pushEv(ev){ const g = S(); g.seq++; g.log.push({id:g.seq, q:g.q, ts:Date.now(), ...ev}); }
+function pushEv(ev){ const g = S(); const q = ev.q || evQ(); g.seq++; g.log.push({id:g.seq, ts:Date.now(), ...ev, q}); }
 function record(k){
   if(ui.sel===null || ui.mode) return;
+  const ph = phase(S());
+  if(!ph.activeQ){ toast(ph.finished ? 'Partita finita: per correggere usa «Correzione»' : `Il periodo non è iniziato: premi «Inizia ${QNAME(ph.next)}»`); return; }
   const n = ui.sel, t = ui.team;
-  pushEv({t, n, k});
+  if(n!==TEAM_N && fouledOut(t, n)){ toast(`#${n} ha già 5 falli`); return; }
+  pushEv({t, n, k, q:ph.activeQ});
   try{ navigator.vibrate && navigator.vibrate(15); }catch(e){}
   toast(`${n===TEAM_N?'Squadra':'#'+n+' '+playerName(t,n)} · ${LABEL[k]}`);
   let fouled = false;
@@ -814,7 +848,7 @@ $('gameForm').addEventListener('submit', e=>{
   if(ui.form==='new'){
     const id = 'g-'+info.date+'-'+Math.random().toString(36).slice(2,7);
     games[id] = normalize(id, {rev:0,q:1,seq:0,log:[],info,teams,createdAt:Date.now()});
-    curId = id; ui.sel = TEAM_N; armRevert(); ui.team = 'A'; ui.form = null;
+    curId = id; ui.sel = TEAM_N; armRevert(); ui.fix = false; ui.mode = null; ui.team = 'A'; ui.form = null;
     commit(); setView('live'); toast('Nuova partita creata · la precedente è in archivio');
   } else {
     Object.assign(S(), {info, teams}); ui.form = null; ui.sel = TEAM_N; armRevert();
@@ -826,7 +860,7 @@ $('newBtn').addEventListener('click', ()=>openForm('new'));
 $('editBtn').addEventListener('click', ()=>openForm('edit'));
 $('gamesList').addEventListener('click', async e=>{
   const o = e.target.closest('[data-open]'), d = e.target.closest('[data-del]'), y = e.target.closest('[data-delyes]'), n = e.target.closest('[data-delno]');
-  if(o){ curId = o.dataset.open; ui.sel = TEAM_N; armRevert(); ui.delAsk = null; saveLocal(); setView('live'); toast('Aperta: '+S().teams.B.name); }
+  if(o){ curId = o.dataset.open; ui.sel = TEAM_N; armRevert(); ui.fix = false; ui.mode = null; ui.delAsk = null; saveLocal(); setView('live'); toast('Aperta: '+S().teams.B.name); }
   else if(d){ ui.delAsk = d.dataset.del; renderGames(); }
   else if(n){ ui.delAsk = null; renderGames(); }
   else if(y){ const id = y.dataset.delyes; delete games[id]; pending.delete(id); ui.delAsk = null; saveLocal(); renderGames();
@@ -978,19 +1012,42 @@ $('chooser').addEventListener('click', e=>{
 });
 // periodi
 $('qBtn').addEventListener('click', ()=>{
-  const g = S(), cs = court(g);
-  if(cs.running){ pushEv({k:'qe', q:cs.runQ}); toast(`Fine ${QNAME(cs.runQ)} periodo`); if(g.q===cs.runQ && g.q<6) g.q++; }
-  else { pushEv({k:'qs'}); toast(`Inizio ${QNAME(g.q)} periodo`); if(!cs.has && S().teams.A.players.length>=5) setTimeout(()=>toast('Consiglio: segna il quintetto per +/- e tempo in campo'), 1800); }
+  const g = S(), cs = court(g), ph = phase(g, cs);
+  if(ui.mode){ toast('Prima completa o annulla la scelta in corso'); return; }
+  if(cs.running){
+    pushEv({k:'qe', q:cs.runQ}); ui.fix = false;
+    const p2 = phase(g), c = compute(g);
+    toast(p2.finished ? `Partita finita ${c.tot.A.pts}-${c.tot.B.pts}` : (cs.runQ>=4 && p2.next ? `Fine ${QNAME(cs.runQ)}: parità, si va al supplementare` : `Fine ${QNAME(cs.runQ)} periodo`));
+  } else if(ph.finished){ toast('Partita finita. Per aggiungere o togliere azioni usa «Correzione».'); return; }
+  else {
+    ui.fix = false; pushEv({k:'qs', q:ph.next}); toast(`Inizio ${QNAME(ph.next)} periodo`);
+    if(!cs.has && g.teams.A.players.length>=5) setTimeout(()=>toast('Consiglio: segna il quintetto per +/- e minuti'), 1800);
+  }
   commit();
+});
+$('fixBtn').addEventListener('click', ()=>{
+  const ph = phase(S());
+  if(ui.fix){ ui.fix = false; toast('Correzione terminata'); }
+  else { ui.fix = true; ui.fixQ = ph.maxDone; toast(`Correzione: le azioni vanno nel ${QNAME(ui.fixQ)}. Tocca un altro periodo concluso per cambiarlo.`); }
+  render();
 });
 setInterval(()=>{ if(ui.view!=='live' || !$('chooser').hidden) return; const cs = court(S()); if(!cs.running) return;
   $('qBtn').textContent = `Fine ${QNAME(cs.runQ)} · ${fmtClock((Date.now()-cs.startTs)/1000)}`;
   if(Math.floor(Date.now()/1000)%20===0) render(); }, 1000);
 $('pad').addEventListener('click', e=>{ const b=e.target.closest('[data-k]'); if(b) record(b.dataset.k); });
-$('quarters').addEventListener('click', e=>{ const b=e.target.closest('[data-q]'); if(!b) return; S().q=+b.dataset.q; commit(); });
+$('quarters').addEventListener('click', e=>{ const b=e.target.closest('[data-q]'); if(!b) return; const q = +b.dataset.q, g = S(), ph = phase(g);
+  if(ph.legacy){ g.q = q; return commit(); }
+  if(ui.fix){ if(ph.done.has(q)){ ui.fixQ = q; render(); } else toast('In correzione puoi scegliere solo un periodo già concluso'); return; }
+  toast(ph.running ? `È in corso il ${QNAME(ph.runQ)}: premi «Fine» alla sirena` : ph.finished ? 'Partita finita: per correggere usa «Correzione»' : `I periodi si aprono e chiudono con «Inizia» e «Fine»`); });
 document.querySelector('.teams').addEventListener('click', e=>{ const b=e.target.closest('[data-t]'); if(!b) return; if(ui.team!==b.dataset.t){ui.team=b.dataset.t; ui.sel=TEAM_N; ui.mode=null; armRevert();} render(); });
 $('undo').addEventListener('click', ()=>{ const e=S().log.pop(); if(!e) return; toast('Annullato: '+(LABEL[e.k]||'ultima voce')); commit(); });
-$('log').addEventListener('click', e=>{ const b=e.target.closest('.x'); if(!b) return; const id=+b.dataset.id; S().log=S().log.filter(x=>x.id!==id); toast('Azione eliminata'); commit(); });
+$('log').addEventListener('click', e=>{ const b=e.target.closest('.x'); if(!b) return; const id=+b.dataset.id, g=S();
+  const i = g.log.findIndex(x=>x.id===id); if(i<0) return; const ev = g.log[i], after = g.log.slice(i+1);
+  // le voci di struttura si tolgono solo se dopo non c'è niente che dipende da loro
+  if((ev.k==='qs' || ev.k==='qe') && after.some(x=>x.k==='qs' || x.k==='qe')){ toast('Si può eliminare solo l\'ultimo inizio/fine periodo. Per aggiungere azioni a un periodo chiuso usa «Correzione».'); return; }
+  if(ev.k==='qs' && after.some(x=>STAT_K.has(x.k))){ toast('Prima elimina le azioni di questo periodo'); return; }
+  if(ev.k==='lineup' && after.some(x=>x.k==='sub' || x.k==='lineup')){ toast('Ci sono cambi successivi: usa «Correggi quintetto»'); return; }
+  g.log.splice(i,1); toast(ev.k==='qe' ? `${QNAME(ev.q)} periodo riaperto` : 'Voce eliminata'); commit(); });
 function setView(v){
   ui.view=v;
   for(const [k,el] of [['live','tabLive'],['box','tabBox'],['games','tabGames']]) $(el).setAttribute('aria-pressed', v===k);
@@ -1007,7 +1064,7 @@ $('copy').addEventListener('click', ()=>{
 });
 $('reset').addEventListener('click', ()=>{ $('confirm').hidden=false; });
 $('resetNo').addEventListener('click', ()=>{ $('confirm').hidden=true; });
-$('resetYes').addEventListener('click', ()=>{ const g=S(); g.log=[]; g.q=1; $('confirm').hidden=true; ui.sel=TEAM_N; armRevert(); toast('Azioni cancellate'); commit(); });
+$('resetYes').addEventListener('click', ()=>{ const g=S(); g.log=[]; g.q=1; ui.fix=false; ui.mode=null; $('confirm').hidden=true; ui.sel=TEAM_N; armRevert(); toast('Azioni cancellate'); commit(); });
 
 // schermo intero + schermo sempre acceso
 let wake = null;
