@@ -178,6 +178,7 @@ th{font-size:11px;letter-spacing:.06em;color:var(--muted);font-weight:600;positi
 td.l,th.l{text-align:left}
 td.num{font-family:var(--f-num);font-weight:700;font-size:15px;text-align:center}
 td.pts{font-weight:700;font-family:inherit;font-size:inherit;line-height:inherit}
+td.min{font-weight:600;color:var(--aux)}
 tr.tot td{font-weight:700;background:var(--sunk);border-bottom:0}
 .thead{font-family:var(--f-num);font-weight:700;font-size:20px;letter-spacing:.03em;display:flex;justify-content:space-between;align-items:baseline}
 .thead.a{color:var(--aux)}.thead.b{color:var(--opp)}
@@ -478,21 +479,32 @@ const fmtPM = v => v>0 ? '+'+v : String(v||0);
 // ricostruisce chi è in campo, tempo reale in campo e +/- rileggendo il registro
 function court(g, now){
   now = now || Date.now();
-  const on = new Set(), secs = {}, pm = {}, qOn = {};
+  const on = new Set(), secs = {}, pm = {}, qOn = {}, secsQ = {}, qReal = {}, qDone = {};
   let running = false, runQ = null, startTs = 0, last = null, has = false;
-  const tick = ts => { if(running && last!=null && ts>last){ const d=(ts-last)/1000; for(const n of on) secs[n]=(secs[n]||0)+d; } if(ts) last = ts; };
+  const tick = ts => { if(running && last!=null && ts>last){ const d=(ts-last)/1000; qReal[runQ]=(qReal[runQ]||0)+d;
+    for(const n of on){ secs[n]=(secs[n]||0)+d; (secsQ[n] ||= {}); secsQ[n][runQ]=(secsQ[n][runQ]||0)+d; } } if(ts) last = ts; };
   const mark = n => { if(running) (qOn[n] ||= new Set()).add(runQ); };
   for(const e of g.log){
     const ts = e.ts || last || 0;
     if(e.k==='lineup'){ tick(ts); on.clear(); e.ids.forEach(n=>{ on.add(n); mark(n); }); has = true; }
     else if(e.k==='sub'){ tick(ts); if(e.out!=null) on.delete(e.out); on.add(e.in); mark(e.in); has = true; }
     else if(e.k==='qs'){ tick(ts); running = true; runQ = e.q; startTs = ts; last = ts; for(const n of on) mark(n); }
-    else if(e.k==='qe'){ tick(ts); running = false; }
+    else if(e.k==='qe'){ tick(ts); running = false; qDone[e.q] = true; }
     else if(PTS[e.k]){ const v = PTS[e.k]*(e.t==='A'?1:-1); for(const n of on) pm[n]=(pm[n]||0)+v; }
   }
   if(running) tick(now);
-  return {on, has, running, runQ, startTs, secs, pm, qOn, timed: g.log.some(e=>e.k==='qs')};
+  // minuti di gioco stimati: la quota di tempo reale passata in campo in ogni periodo, riportata sui minuti del periodo
+  const qLen = q => q<=4 ? 10 : 5;
+  const doneReal = Object.keys(qDone).map(Number).filter(q=>qReal[q]>0);
+  const avgReal = doneReal.length ? doneReal.reduce((a,q)=>a+qReal[q]/qLen(q),0)/doneReal.length : 1.7*60; // secondi reali per minuto di gioco
+  const minQ = (n, q) => { const r = qReal[q]; if(!r) return 0; const share = ((secsQ[n]||{})[q]||0)/r;
+    const played = qDone[q] ? qLen(q) : Math.min(qLen(q), r/avgReal);   // periodo in corso: minuti di gioco stimati finora
+    return share*played; };
+  const periods = Object.keys(qReal).map(Number).sort((a,b)=>a-b);
+  const est = n => periods.reduce((a,q)=>a+minQ(n,q),0);
+  return {on, has, running, runQ, startTs, secs, pm, qOn, secsQ, qReal, qDone, periods, minQ, est, timed: g.log.some(e=>e.k==='qs')};
 }
+const fmtEst = m => m>0 && m<0.5 ? "<1'" : Math.round(m)+"'";
 const QNAME = q => q<=4 ? q+'°' : 'TS'+(q-4);
 const GKEY = 'aux-games-v2', CKEY = 'aux-current';
 const today = () => new Date().toLocaleDateString('sv');
@@ -593,7 +605,7 @@ function render(){
     if(ui.mode==='sub' && ui.outs.includes(p.n)){ cls += ' subout'; tag = `<b class="tag">ESCE ${ui.outs.indexOf(p.n)+1}</b>`; }
     if(ui.mode==='sub' && ui.ins.includes(p.n)){ cls += ' subin'; tag = `<b class="tag">ENTRA ${ui.ins.indexOf(p.n)+1}</b>`; }
     const pmv = cs.pm[p.n]||0;
-    const m2 = ui.team==='A' && cs.has ? `<span class="meta2"><span class="pfm${s.pf>=4?' hot':''}">${s.pf}F · </span>${cs.timed?fmtMin(cs.secs[p.n]||0)+' · ':''}<span class="${pmv>0?'pm-pos':pmv<0?'pm-neg':''}">${fmtPM(pmv)}</span></span>` : '';
+    const m2 = ui.team==='A' && cs.has ? `<span class="meta2"><span class="pfm${s.pf>=4?' hot':''}">${s.pf}F · </span>${cs.timed?fmtEst(cs.est(p.n))+' · ':''}<span class="${pmv>0?'pm-pos':pmv<0?'pm-neg':''}">${fmtPM(pmv)}</span></span>` : '';
     return `<button class="${cls}" data-n="${p.n}" aria-pressed="${on}">${left?`<i class="tm" style="animation-duration:${REVERT_MS}ms;animation-delay:-${REVERT_MS-left}ms"></i>`:''}${tag}
       <span class="n">${p.n}</span><span class="nm">${esc(p.name)}${p.cap?' (C)':''}</span>
       <span class="meta">${s.pf>=5?'<span class="outlbl">FUORI 5F</span>':`<span>${s.pts} pt</span><span class="dots" aria-label="${s.pf} falli">${dots}</span>`}</span>${m2}</button>`;
@@ -643,6 +655,15 @@ function render(){
   if(ui.view==='games') renderGames();
 }
 
+function minTable(g, cs){
+  const T = g.teams.A, qs = cs.periods;
+  const rows = T.players.map(p=>`<tr class="prow" data-t="A" data-n="${p.n}"><td class="num">${p.n}</td><td class="l"><span class="plink">${esc(p.name)}</span></td>${qs.map(q=>{ const m = cs.minQ(p.n,q); return `<td>${m?fmtEst(m):'–'}</td>`; }).join('')}<td class="pts">${fmtEst(cs.est(p.n))}</td><td>${fmtMin(cs.secs[p.n]||0)}</td></tr>`).join('');
+  const dur = qs.map(q=>`<td>${fmtMin(cs.qReal[q])}${cs.qDone[q]?'':' ▸'}</td>`).join('');
+  return `<div class="thead a" style="font-size:16px;margin-top:6px"><span>Minuti per periodo</span></div>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th>${qs.map(q=>`<th>${QNAME(q)}</th>`).join('')}<th>TOT</th><th title="tempo reale in campo">Reale</th></tr></thead>
+    <tbody>${rows}<tr class="tot"><td></td><td class="l">Durata reale periodo</td>${dur}<td></td><td></td></tr></tbody></table></div>
+    <p class="legend">Minuti stimati: la parte di periodo passata in campo, riportata sui 10' del quarto (5' nei supplementari). "Reale" è il tempo d'orologio in campo, interruzioni comprese. ▸ = periodo in corso.</p>`;
+}
 function renderBox(c){
   const g = S(), cs = court(g);
   for(const t of ['A','B']){
@@ -654,15 +675,16 @@ function renderBox(c){
       const s = c.per[t][n]; if(n===TEAM_N && !s) continue;
       const p = T.players.find(p=>p.n===n);
       const nm = n===TEAM_N ? 'Squadra' : (p ? p.name+(p.cap?' (C)':'') : '#'+n);
-      const ex = t==='A' && cs.has ? (n===TEAM_N ? ['',''] : [cs.timed?fmtMin(cs.secs[n]||0):'–', fmtPM(cs.pm[n]||0)]) : null;
+      const ex = t==='A' ? (n===TEAM_N ? ['',''] : [cs.has && cs.timed ? fmtEst(cs.est(n)) : '–', cs.has ? fmtPM(cs.pm[n]||0) : '–']) : null;
       rows.push(row(n===TEAM_N?'SQ':n, nm, s||blank(), false, n===TEAM_N?null:`data-t="${t}" data-n="${n}"`, ex));
     }
-    rows.push(row('', 'Totale', c.tot[t], true, null, t==='A' && cs.has ? ['',''] : null));
+    rows.push(row('', 'Totale', c.tot[t], true, null, t==='A' ? [cs.has && cs.timed ? fmtEst(T.players.reduce((a,p)=>a+cs.est(p.n),0)/5) : '', ''] : null));
     $('box'+t).innerHTML = `<div class="thead ${t.toLowerCase()}"><span>${esc(T.name)}</span><span>${c.tot[t].pts}</span></div>
-      <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>TL%</th><th>RO</th><th>RD</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>ST</th><th>FS</th><th>F</th><th>VAL</th>${t==='A' && cs.has?'<th title="tempo reale in campo">MIN</th><th>+/-</th>':''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+      <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th>${t==='A'?'<th title="minuti di gioco stimati">MIN</th>':''}<th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>TL%</th><th>RO</th><th>RD</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>ST</th><th>FS</th><th>F</th><th>VAL</th>${t==='A'?'<th>+/-</th>':''}</tr></thead><tbody>${rows.join('')}</tbody></table></div>
+      ${t==='A' ? (cs.has && cs.timed ? minTable(g, cs) : `<p class="legend">Per avere i minuti: nella schermata Live segna il quintetto e premi "Inizia" a ogni periodo e "Fine" alla sirena.</p>`) : ''}`;
   }
   function row(n,nm,x,tot,attr,ex){
-    return `<tr class="${tot?'tot':''}${attr?' prow':''}" ${attr||''}><td class="num">${n}</td><td class="l">${attr?`<span class="plink">${esc(nm)}</span>`:esc(nm)}</td><td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${pct(x.p1,x.a1)}</td><td>${x.ro}</td><td>${x.rd}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.bk}</td><td>${x.fs}</td><td>${x.pf}</td><td>${val(x)}</td>${ex?`<td>${ex[0]}</td><td>${ex[1]}</td>`:''}</tr>`;
+    return `<tr class="${tot?'tot':''}${attr?' prow':''}" ${attr||''}><td class="num">${n}</td><td class="l">${attr?`<span class="plink">${esc(nm)}</span>`:esc(nm)}</td>${ex?`<td class="min">${ex[0]}</td>`:''}<td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${pct(x.p1,x.a1)}</td><td>${x.ro}</td><td>${x.rd}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.bk}</td><td>${x.fs}</td><td>${x.pf}</td><td>${val(x)}</td>${ex?`<td>${ex[1]}</td>`:''}</tr>`;
   }
 }
 
@@ -698,7 +720,7 @@ function textSummary(){
   for(const t of ['A','B']){
     L.push(''); L.push(g.teams[t].name.toUpperCase());
     for(const p of g.teams[t].players){ const s = c.per[t][p.n]; if(!s) continue;
-      const extra = t==='A' && csT.has ? `, +/- ${fmtPM(csT.pm[p.n]||0)}${csT.timed?', in campo ~'+fmtMin(csT.secs[p.n]||0):''}` : '';
+      const extra = t==='A' && csT.has ? `, +/- ${fmtPM(csT.pm[p.n]||0)}${csT.timed?', min ~'+fmtEst(csT.est(p.n)):''}` : '';
       L.push(`#${p.n} ${p.name}: ${s.pts} pt (2P ${s.p2}/${s.a2}, 3P ${s.p3}/${s.a3}, TL ${s.p1}/${s.a1}), RT ${s.ro+s.rd}, AS ${s.as}, PR ${s.st}, PP ${s.to}, F ${s.pf}${extra}`); }
     const x = c.tot[t]; L.push(`Totale: ${x.pts} pt · 2P ${x.p2}/${x.a2} · 3P ${x.p3}/${x.a3} · TL ${x.p1}/${x.a1} · RT ${x.ro+x.rd} · AS ${x.as} · PP ${x.to} · F ${x.pf}`);
   }
@@ -835,7 +857,7 @@ function seasonGames(){
   for(const g of Object.values(games)){
     const p = g.teams.A.players.find(p=>normName(p.name)===key); if(!p) continue;
     const x = compute(g).per.A[p.n], cs = court(g);
-    out.push({g, n:p.n, x: x || blank(), played: !!(x || cs.qOn[p.n] || cs.secs[p.n]), secs: cs.secs[p.n]||0, pm: cs.has ? (cs.pm[p.n]||0) : null, timed: cs.timed});
+    out.push({g, n:p.n, x: x || blank(), played: !!(x || cs.qOn[p.n] || cs.secs[p.n]), secs: cs.secs[p.n]||0, mins: cs.has && cs.timed ? cs.est(p.n) : null, pm: cs.has ? (cs.pm[p.n]||0) : null, timed: cs.timed});
   }
   return out.sort((a,b)=>(a.g.info.date||'').localeCompare(b.g.info.date||''));
 }
@@ -856,9 +878,9 @@ function renderSheet(){
       <div class="kpis">${kpi(np,'Partite',`${list.length} a referto`)}${kpi(avg(tot.pts),'Punti/partita',`${tot.pts} totali`)}${kpi(avg(tot.ro+tot.rd),'Rimbalzi/p.',`${tot.ro+tot.rd} totali`)}${kpi(avg(tot.as),'Assist/p.',`${tot.as} totali`)}${kpi(avg(val(tot)),'Valutaz./p.')}${kpi(avg(tot.pf),'Falli/p.',`${tot.pf} totali`)}</div>
       <div class="shots3">${shotBar('Tiri da 2', tot.p2, tot.a2)}${shotBar('Tiri da 3', tot.p3, tot.a3)}${shotBar('Tiri liberi', tot.p1, tot.a1)}</div>
       ${minis(tot)}
-      ${(()=>{ const wp = played.filter(r=>r.pm!=null), wt = played.filter(r=>r.timed); return wp.length ? `<div class="minis"><div><span>+/- medio</span> <b>${fmtPM(Math.round(wp.reduce((a,r)=>a+r.pm,0)/wp.length*10)/10).replace('.',',')}</b></div>${wt.length?`<div><span>In campo (tempo reale) medio</span> <b>${fmtMin(wt.reduce((a,r)=>a+r.secs,0)/wt.length)}</b></div>`:''}</div>` : ''; })()}
-      <div class="tablewrap"><table><thead><tr><th class="l">Data</th><th class="l">Avversario</th><th>#</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>F</th><th>VAL</th><th>+/-</th></tr></thead><tbody>
-      ${list.slice().reverse().map(r=>{ const x=r.x; return `<tr><td class="l">${dateIt(r.g.info.date)}</td><td class="l">${r.g.info.home?'vs':'@'} ${esc(r.g.teams.B.name)}</td><td>${r.n}</td>${r.played?`<td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.pf}</td><td>${val(x)}</td><td>${r.pm==null?'–':fmtPM(r.pm)}</td>`:'<td colspan="11" class="l" style="color:var(--muted)">nessuna statistica</td>'}</tr>`; }).join('')}
+      ${(()=>{ const wp = played.filter(r=>r.pm!=null), wt = played.filter(r=>r.timed); return wp.length ? `<div class="minis"><div><span>+/- medio</span> <b>${fmtPM(Math.round(wp.reduce((a,r)=>a+r.pm,0)/wp.length*10)/10).replace('.',',')}</b></div>${wt.length?`<div><span>Minuti medi (stimati)</span> <b>${fmtEst(wt.reduce((a,r)=>a+(r.mins||0),0)/wt.length)}</b></div>`:''}</div>` : ''; })()}
+      <div class="tablewrap"><table><thead><tr><th class="l">Data</th><th class="l">Avversario</th><th>#</th><th>MIN</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>F</th><th>VAL</th><th>+/-</th></tr></thead><tbody>
+      ${list.slice().reverse().map(r=>{ const x=r.x; return `<tr><td class="l">${dateIt(r.g.info.date)}</td><td class="l">${r.g.info.home?'vs':'@'} ${esc(r.g.teams.B.name)}</td><td>${r.n}</td>${r.played?`<td>${r.mins==null?'–':fmtEst(r.mins)}</td><td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.pf}</td><td>${val(x)}</td><td>${r.pm==null?'–':fmtPM(r.pm)}</td>`:'<td colspan="12" class="l" style="color:var(--muted)">nessuna statistica</td>'}</tr>`; }).join('')}
       </tbody></table></div>`;
     return;
   }
@@ -867,12 +889,14 @@ function renderSheet(){
   const maxQ = Math.max(4, ...g.log.map(e=>e.q));
   const mine = g.log.filter(e=>e.t===t && e.n===n).slice().reverse();
   const share = c.tot[t].pts ? Math.round(x.pts/c.tot[t].pts*100) : 0;
-  const cs = court(g), lineupK = isAux && cs.has ? `${kpi(fmtPM(cs.pm[n]||0),'+/-','punti con lui in campo')}${cs.timed?kpi(fmtMin(cs.secs[n]||0),'In campo','tempo reale'+(cs.on.has(n)?' · ora in campo':'')):''}` : '';
+  const cs = court(g), lineupK = isAux && cs.has ? `${kpi(fmtPM(cs.pm[n]||0),'+/-','punti con lui in campo')}${cs.timed?kpi(fmtEst(cs.est(n)),'Minuti','stimati · reale '+fmtMin(cs.secs[n]||0)+(cs.on.has(n)?' · in campo ora':'')):''}` : '';
+  const minRow = isAux && cs.has && cs.timed ? `<div class="qpts">${cs.periods.map(q=>`<div>${QNAME(q)} min<b>${fmtEst(cs.minQ(n,q))}</b></div>`).join('')}</div>` : '';
   $('shBody').innerHTML = `
     <div class="kpis">${kpi(x.pts,'Punti', c.tot[t].pts?`${share}% della squadra`:'')}${kpi(x.ro+x.rd,'Rimbalzi',`${x.ro} off · ${x.rd} dif`)}${kpi(x.as,'Assist')}${kpi(val(x),'Valutazione')}${kpi(x.pf+(x.pf>=5?' ✕':''),'Falli', x.pf>=5?'uscito per falli':`${5-x.pf} rimasti`)}${lineupK}</div>
     <div class="shots3">${shotBar('Tiri da 2', x.p2, x.a2)}${shotBar('Tiri da 3', x.p3, x.a3)}${shotBar('Tiri liberi', x.p1, x.a1)}</div>
     ${minis(x)}
-    <div class="qpts">${Array.from({length:maxQ},(_,i)=>`<div>${QNAME(i+1)}<b>${qp[i+1]||0}</b></div>`).join('')}</div>
+    <div class="qpts">${Array.from({length:maxQ},(_,i)=>`<div>${QNAME(i+1)} pt<b>${qp[i+1]||0}</b></div>`).join('')}</div>
+    ${minRow}
     <ul class="shlog">${mine.length ? mine.map(e=>`<li><span class="q">${QNAME(e.q)}</span><span>${LABEL[e.k]}</span></li>`).join('') : '<li class="empty">Nessuna azione registrata in questa partita.</li>'}</ul>`;
 }
 $('shClose').addEventListener('click', closeSheet);
