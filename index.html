@@ -47,7 +47,6 @@ button:focus-visible{outline:3px solid var(--aux);outline-offset:2px}
 .board{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--board);color:var(--board-ink)}
 .board .wrap{padding-block:10px 8px;display:grid;gap:6px}
 .score{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px}
-.score.swap .side.a{order:3;align-items:flex-end;text-align:right}.score.swap .side.b{order:1;align-items:flex-start;text-align:left}.score.swap .mid{order:2}
 .side{display:flex;flex-direction:column;min-width:0}
 .side.b{align-items:flex-end;text-align:right}
 .tname{font-family:var(--f-num);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -342,11 +341,11 @@ tr.prow:active td{background:var(--aux-soft)}
 /* ===== Live: panchina | quintetto | AZIONI | quintetto | panchina ===== */
 #viewLive{display:block!important}
 .arena{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,1.2fr) minmax(0,1fr);gap:12px;align-items:start}
-.side{display:grid;gap:8px;min-width:0}
+.tside{display:grid;gap:8px;min-width:0}
 .shead{display:flex;align-items:center;gap:6px;min-height:34px;min-width:0}
-.side.right .shead{flex-direction:row-reverse}
+.tside.right .shead{flex-direction:row-reverse}
 .sname{font-family:var(--f-num);font-weight:800;font-size:18px;letter-spacing:.04em;text-transform:uppercase;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.side.right .sname{text-align:right}
+.tside.right .sname{text-align:right}
 .shead.tA .sname{color:var(--aux)}.shead.tB .sname{color:var(--opp-ink)}
 .shead .small{padding:6px 10px;font-size:13px;white-space:nowrap}
 .cols{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:8px;align-items:start}
@@ -384,7 +383,7 @@ body.arming .arena .pl:not(.out){box-shadow:0 0 0 2px var(--ink) inset;animation
 @keyframes arm{50%{box-shadow:0 0 0 2px transparent inset}}
 .arena .pl:active{transform:scale(.97)}
 .arena .pl.pick{background:var(--aux);color:#fff}.arena .pl.pick .n,.arena .pl.pick .meta{color:#fff}
-.side .modebar{margin:0;font-size:13px}
+.tside .modebar{margin:0;font-size:13px}
 .center{display:grid;gap:8px;min-width:0}
 .ctop{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .qbtn.big{font-family:var(--f-num);font-size:24px;letter-spacing:.03em;padding:12px 14px;border-radius:12px;min-height:58px;font-weight:800}
@@ -402,6 +401,11 @@ body.arming .arena .pl:not(.out){box-shadow:0 0 0 2px var(--ink) inset;animation
 .act:disabled{opacity:.35}
 .act:active{transform:scale(.97)}
 .cfoot{display:flex;justify-content:center}
+@media (min-width:901px){ .arena .pl{touch-action:none;user-select:none;-webkit-user-select:none} }
+.pl.ghost{position:fixed;left:0;top:0;z-index:60;pointer-events:none;opacity:.92;box-shadow:0 12px 30px rgb(0 0 0/.35);margin:0}
+.pl.dragging{opacity:.35}
+.arena .pl.droptarget{outline:4px solid var(--good);outline-offset:2px;background:var(--good-soft)}
+body.dragmode .arena .pl{animation:none}
 @media (max-width:900px){
   .arena{grid-template-columns:1fr 1fr}
   .center{grid-column:1/-1;order:-1}
@@ -441,7 +445,7 @@ body.arming .arena .pl:not(.out){box-shadow:0 0 0 2px var(--ink) inset;animation
 
   <section id="viewLive">
     <div class="arena" id="arena">
-      <div class="side left" id="sideL"></div>
+      <div class="tside left" id="sideL"></div>
       <div class="center">
         <div class="ctop"><button class="small qbtn big go" type="button" id="qBtn">Inizia 1°</button><button class="undo" type="button" id="undo">Annulla</button></div>
         <div class="hint" id="hint"></div>
@@ -457,7 +461,7 @@ body.arming .arena .pl:not(.out){box-shadow:0 0 0 2px var(--ink) inset;animation
         <div class="lastline" id="lastline"></div>
         <div class="cfoot"><button class="small" type="button" id="fixBtn" hidden>Correzione</button></div>
       </div>
-      <div class="side right" id="sideR"></div>
+      <div class="tside right" id="sideR"></div>
     </div>
   </section>
 
@@ -653,15 +657,16 @@ function logText(e){
 function render(){
   const g = S(), c = compute();
   const homeA = g.info.home !== false, L = homeA ? 'A' : 'B', R = homeA ? 'B' : 'A';
-  document.querySelector('.score').classList.toggle('swap', !homeA);
-  $('nameA').textContent = 'Auxilium'; $('nameB').textContent = g.teams.B.name;
-  $('ptsA').textContent = c.tot.A.pts; $('ptsB').textContent = c.tot.B.pts;
+  // tabellone: casa a sinistra, ospiti a destra
+  const tName = t => t==='A' ? 'Auxilium' : g.teams.B.name, tCol = t => t==='A' ? '#9db7ff' : '#ffd166';
+  $('nameA').textContent = tName(L); $('nameA').style.color = tCol(L); $('ptsA').textContent = c.tot[L].pts;
+  $('nameB').textContent = tName(R); $('nameB').style.color = tCol(R); $('ptsB').textContent = c.tot[R].pts;
   const cs = {A: court(g, 0, 'A'), B: court(g, 0, 'B')}, ph = phase(g, cs.A, c);
   $('qBig').textContent = ph.running ? QNAME(ph.runQ) : ph.finished ? 'FINE' : ph.legacy ? QNAME(g.q) : QNAME(ph.next);
   document.querySelector('.qlabel').textContent = ph.running ? 'IN CORSO' : ph.finished ? 'PARTITA' : ph.legacy ? 'PERIODO' : (ph.maxDone ? 'INTERVALLO' : 'PRE-PARTITA');
   const fq = Math.min(ph.activeQ || ph.next || ph.maxDone || g.q, 4);
   for(const t of ['A','B']){
-    const n = c.tf[t][fq]||0, el = $('tf'+t);
+    const n = c.tf[t][fq]||0, el = $(t===L ? 'tfA' : 'tfB');
     el.textContent = 'Falli sq. '+n + (n>=4 ? ' · BONUS' : '');
     el.classList.toggle('bonus', n>=4);
   }
@@ -751,9 +756,9 @@ function minTable(g, cs){
   const rows = T.players.map(p=>`<tr class="prow" data-t="A" data-n="${p.n}"><td class="num">${p.n}</td><td class="l"><span class="plink">${esc(p.name)}</span></td>${qs.map(q=>{ const m = cs.minQ(p.n,q); return `<td>${m?fmtEst(m):'–'}</td>`; }).join('')}<td class="pts">${fmtEst(cs.est(p.n))}</td><td>${fmtMin(cs.secs[p.n]||0)}</td></tr>`).join('');
   const dur = qs.map(q=>`<td>${fmtMin(cs.qReal[q])}${cs.qDone[q]?'':' ▸'}</td>`).join('');
   return `<div class="thead a" style="font-size:16px;margin-top:6px"><span>Minuti per periodo</span></div>
-    <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th>${qs.map(q=>`<th>${QNAME(q)}</th>`).join('')}<th>TOT</th><th title="tempo reale in campo">Reale</th></tr></thead>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Giocatore</th>${qs.map(q=>`<th>${QNAME(q)}</th>`).join('')}<th>TOT</th><th title="tempo d'orologio in campo, interruzioni comprese">Lordi</th></tr></thead>
     <tbody>${rows}<tr class="tot"><td></td><td class="l">Durata reale periodo</td>${dur}<td></td><td></td></tr></tbody></table></div>
-    <p class="legend">Minuti stimati: la parte di periodo passata in campo, riportata sui 10' del quarto (5' nei supplementari). "Reale" è il tempo d'orologio in campo, interruzioni comprese. ▸ = periodo in corso.</p>`;
+    <p class="legend">Minuti stimati: la parte di periodo passata in campo, riportata sui 10' del quarto (5' nei supplementari). "Lordi" è il tempo d'orologio in campo, interruzioni comprese. ▸ = periodo in corso.</p>`;
 }
 function renderBox(c){
   const g = S(), cs = court(g);
@@ -970,7 +975,7 @@ function renderSheet(){
       <div class="kpis">${kpi(np,'Partite',`${list.length} a referto`)}${kpi(avg(tot.pts),'Punti/partita',`${tot.pts} totali`)}${kpi(avg(tot.ro+tot.rd),'Rimbalzi/p.',`${tot.ro+tot.rd} totali`)}${kpi(avg(tot.as),'Assist/p.',`${tot.as} totali`)}${kpi(avg(val(tot)),'Valutaz./p.')}${kpi(avg(tot.pf),'Falli/p.',`${tot.pf} totali`)}</div>
       <div class="shots3">${shotBar('Tiri da 2', tot.p2, tot.a2)}${shotBar('Tiri da 3', tot.p3, tot.a3)}${shotBar('Tiri liberi', tot.p1, tot.a1)}</div>
       ${minis(tot)}
-      ${(()=>{ const wp = played.filter(r=>r.pm!=null), wt = played.filter(r=>r.timed); return wp.length ? `<div class="minis"><div><span>+/- medio</span> <b>${fmtPM(Math.round(wp.reduce((a,r)=>a+r.pm,0)/wp.length*10)/10).replace('.',',')}</b></div>${wt.length?`<div><span>Minuti medi (stimati)</span> <b>${fmtEst(wt.reduce((a,r)=>a+(r.mins||0),0)/wt.length)}</b></div>`:''}</div>` : ''; })()}
+      ${(()=>{ const wp = played.filter(r=>r.pm!=null), wt = played.filter(r=>r.timed); return wp.length ? `<div class="minis"><div><span>+/- medio</span> <b>${fmtPM(Math.round(wp.reduce((a,r)=>a+r.pm,0)/wp.length*10)/10).replace('.',',')}</b></div>${wt.length?`<div><span>Minuti medi (stimati)</span> <b>${fmtEst(wt.reduce((a,r)=>a+(r.mins||0),0)/wt.length)}</b></div><div><span>Minuti lordi medi</span> <b>${fmtMin(wt.reduce((a,r)=>a+r.secs,0)/wt.length)}</b></div>`:''}</div>` : ''; })()}
       <div class="tablewrap"><table><thead><tr><th class="l">Data</th><th class="l">Avversario</th><th>#</th><th>MIN</th><th>PTS</th><th>2P</th><th>3P</th><th>TL</th><th>RT</th><th>AS</th><th>PR</th><th>PP</th><th>F</th><th>VAL</th><th>+/-</th></tr></thead><tbody>
       ${list.slice().reverse().map(r=>{ const x=r.x; return `<tr><td class="l">${dateIt(r.g.info.date)}</td><td class="l">${r.g.info.home?'vs':'@'} ${esc(r.g.teams.B.name)}</td><td>${r.n}</td>${r.played?`<td>${r.mins==null?'–':fmtEst(r.mins)}</td><td class="pts">${x.pts}</td><td>${x.p2}/${x.a2}</td><td>${x.p3}/${x.a3}</td><td>${x.p1}/${x.a1}</td><td>${x.ro+x.rd}</td><td>${x.as}</td><td>${x.st}</td><td>${x.to}</td><td>${x.pf}</td><td>${val(x)}</td><td>${r.pm==null?'–':fmtPM(r.pm)}</td>`:'<td colspan="12" class="l" style="color:var(--muted)">nessuna statistica</td>'}</tr>`; }).join('')}
       </tbody></table></div>`;
@@ -981,8 +986,8 @@ function renderSheet(){
   const maxQ = Math.max(4, ...g.log.map(e=>e.q));
   const mine = g.log.filter(e=>e.t===t && e.n===n).slice().reverse();
   const share = c.tot[t].pts ? Math.round(x.pts/c.tot[t].pts*100) : 0;
-  const cs = court(g), lineupK = isAux && cs.has ? `${kpi(fmtPM(cs.pm[n]||0),'+/-','punti con lui in campo')}${cs.timed?kpi(fmtEst(cs.est(n)),'Minuti','stimati · reale '+fmtMin(cs.secs[n]||0)+(cs.on.has(n)?' · in campo ora':'')):''}` : '';
-  const minRow = isAux && cs.has && cs.timed ? `<div class="qpts">${cs.periods.map(q=>`<div>${QNAME(q)} min<b>${fmtEst(cs.minQ(n,q))}</b></div>`).join('')}</div>` : '';
+  const cs = court(g, 0, t), lineupK = cs.has ? `${kpi(fmtPM(cs.pm[n]||0),'+/-','punti con lui in campo')}${cs.timed?kpi(fmtEst(cs.est(n)),'Minuti','stimati sui 10\' del quarto'+(cs.on.has(n)?' · in campo ora':''))+kpi(fmtMin(cs.secs[n]||0),'Minuti lordi','tempo d\'orologio in campo'):''}` : '';
+  const minRow = cs.has && cs.timed ? `<div class="qpts">${cs.periods.map(q=>`<div>${QNAME(q)} min<b>${fmtEst(cs.minQ(n,q))}</b></div>`).join('')}</div>` : '';
   $('shBody').innerHTML = `
     <div class="kpis">${kpi(x.pts,'Punti', c.tot[t].pts?`${share}% della squadra`:'')}${kpi(x.ro+x.rd,'Rimbalzi',`${x.ro} off · ${x.rd} dif`)}${kpi(x.as,'Assist')}${kpi(val(x),'Valutazione')}${kpi(x.pf+(x.pf>=5?' ✕':''),'Falli', x.pf>=5?'uscito per falli':`${5-x.pf} rimasti`)}${lineupK}</div>
     <div class="shots3">${shotBar('Tiri da 2', x.p2, x.a2)}${shotBar('Tiri da 3', x.p3, x.a3)}${shotBar('Tiri liberi', x.p1, x.a1)}</div>
@@ -1006,7 +1011,50 @@ $('acts').addEventListener('click', e=>{
   if(!ph.activeQ){ toast(ph.finished ? 'Partita finita' : `Premi prima «Inizia ${QNAME(ph.next)}»`); return; }
   ui.arm = ui.arm===b.dataset.k ? null : b.dataset.k; render();
 });
+// cambio trascinando: panchinaro sopra il giocatore in campo che sostituisce (o il contrario)
+let drag = null, dragJustEnded = false;
+$('arena').addEventListener('pointerdown', e=>{
+  const b = e.target.closest('.pl'); if(!b || ui.mode || b.classList.contains('team') || !b.dataset.t) return;
+  const t = b.dataset.t; if(!court(S(), 0, t).has) return;
+  drag = {t, n:+b.dataset.n, el:b, x0:e.clientX, y0:e.clientY, on:false, ghost:null, id:e.pointerId, target:null};
+});
+function dropTarget(x, y){
+  const el = document.elementFromPoint(x, y), b = el && el.closest && el.closest('.arena .pl');
+  if(!b || !drag || b===drag.el || b.dataset.t!==drag.t || b.classList.contains('team')) return null;
+  const on = court(S(), 0, drag.t).on;
+  return on.has(+b.dataset.n) !== on.has(drag.n) ? b : null;     // uno in campo e uno in panchina
+}
+window.addEventListener('pointermove', e=>{
+  if(!drag || e.pointerId!==drag.id) return;
+  if(!drag.on){
+    if(Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0) < 12) return;
+    drag.on = true; const r = drag.el.getBoundingClientRect();
+    drag.ghost = drag.el.cloneNode(true); drag.ghost.classList.add('ghost'); drag.ghost.style.width = r.width+'px';
+    drag.w = r.width; drag.h = r.height; document.body.appendChild(drag.ghost);
+    drag.el.classList.add('dragging'); document.body.classList.add('dragmode');
+  }
+  e.preventDefault();
+  drag.ghost.style.transform = `translate(${e.clientX-drag.w/2}px, ${e.clientY-drag.h/2}px)`;
+  const tgt = dropTarget(e.clientX, e.clientY);
+  if(tgt!==drag.target){ drag.target && drag.target.classList.remove('droptarget'); drag.target = tgt; tgt && tgt.classList.add('droptarget'); }
+}, {passive:false});
+function endDrag(e, cancel){
+  if(!drag || (e && e.pointerId!==drag.id)) return;
+  const d = drag; drag = null;
+  if(!d.on) return;
+  d.ghost.remove(); d.el.classList.remove('dragging'); document.body.classList.remove('dragmode');
+  d.target && d.target.classList.remove('droptarget');
+  dragJustEnded = true; setTimeout(()=>{ dragJustEnded = false; }, 80);
+  if(cancel || !d.target) return;
+  const other = +d.target.dataset.n, on = court(S(), 0, d.t).on;
+  const out = on.has(d.n) ? d.n : other, inn = on.has(d.n) ? other : d.n;
+  if(fouledOut(d.t, inn)){ toast(`#${inn} ha 5 falli, non può entrare`); return; }
+  pushEv({k:'sub', t:d.t, out, in:inn}); toast(`Cambio ${S().teams[d.t].short}: esce #${out}, entra #${inn}`); commit();
+}
+window.addEventListener('pointerup', e=>endDrag(e, false));
+window.addEventListener('pointercancel', e=>endDrag(e, true));
 $('arena').addEventListener('click', async e=>{
+  if(dragJustEnded) return;
   const act = e.target.closest('[data-act]');
   if(act){ return modeAction(act.dataset.act, act.dataset.t); }
   const b = e.target.closest('.pl'); if(!b || !b.dataset.t) return;
