@@ -1,5 +1,5 @@
 // Tabellino Auxilium: funziona offline. Cambia VERSION a ogni aggiornamento dell'app.
-const VERSION = 'tabellino-v6';
+const VERSION = 'tabellino-v7';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 // lettore liste R (OCR): scaricato all'installazione per funzionare offline
 const OCR = ['./ocr/tesseract.min.js', './ocr/worker.min.js', './ocr/core/tesseract-core-simd-lstm.wasm.js', './ocr/core/tesseract-core-lstm.wasm.js', './ocr/lang/ita.traineddata.gz'];
