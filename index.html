@@ -432,7 +432,7 @@ body.dragmode .arena .pl{animation:none}
       <div class="side b"><span class="tname" id="nameB">Avversario</span><span class="pts" id="ptsB">0</span><span class="fouls" id="tfB">Falli sq. 0</span></div>
     </div>
     <div class="qline" id="qline"></div>
-    <div class="syncrow"><span class="sync" id="sync">Caricamento…</span><button class="fsbtn" id="fsBtn">Schermo intero</button></div>
+    <div class="syncrow"><span class="sync" id="ver">v12</span><span class="sync" id="sync">Caricamento…</span><button class="fsbtn" id="fsBtn">Schermo intero</button></div>
   </div>
 </header>
 
@@ -1390,7 +1390,14 @@ $('ocrFile').addEventListener('change', async e=>{
   ocrBusy = false; $('ocrBtn').disabled = false;
 });
 
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+const APP_VERSION = '12';
+if('serviceWorker' in navigator){
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(r=>{ try{ r.update(); }catch(e){} }).catch(()=>{});
+  // quando arriva una versione nuova la pagina si ricarica da sola (una volta)
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{ if(hadController && !reloaded){ reloaded = true; location.reload(); } });
+}
 </script>
 
 </body>
